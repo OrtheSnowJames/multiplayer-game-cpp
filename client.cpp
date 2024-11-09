@@ -1,14 +1,12 @@
 #include <iostream>
 #include <string>
 #include <boost/asio.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/streambuf.hpp>
+#include <nlohmann/json.hpp>
 #include "raylib.h"
 
 using namespace std;
 using namespace boost::asio;
 using ip::tcp;
-
 int main() {
     try {
         boost::asio::io_context io_context;
@@ -20,7 +18,6 @@ int main() {
             boost::asio::ip::address::from_string("127.0.0.1"), 
             1234
         );
-
         socket.connect(endpoint);
         std::cout << "Connected to server" << std::endl;
 
@@ -43,7 +40,7 @@ int main() {
 
             std::cout << "Received: " << message << std::endl;
         }
-
+        
         // Clean up
         socket.close();
 

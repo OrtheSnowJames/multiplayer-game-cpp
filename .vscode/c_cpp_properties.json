@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/james/vcpkg/installed/x64-linux/boost_1_86_0/boost",
+                "/home/james/vcpkg/installed/x64-linux/boost_1_86_0/boost/asio",
+                "/home/james/vcpkg/installed/x64-linux/boost_1_86_0"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

@@ -1,0 +1,9 @@
+{
+    "C_Cpp.errorSquiggles": "enabledIfIncludesResolve",
+    "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+    "C_Cpp.intelliSenseEngine": "default",
+    "files.associations": {
+        "iostream": "cpp",
+        "*.ipp": "cpp"
+    }
+}

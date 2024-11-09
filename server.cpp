@@ -8,6 +8,7 @@ int main(){
     while(true){
         tcp::socket socket(io_context);
         //wait
+        
         acceptor.accept(socket);
         boost::asio::streambuf buffer;
         boost::asio::read_until(socket, buffer, "\n");
