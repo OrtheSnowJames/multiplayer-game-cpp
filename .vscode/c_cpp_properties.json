@@ -6,7 +6,9 @@
                 "${workspaceFolder}/**",
                 "/home/james/vcpkg/installed/x64-linux/boost_1_86_0/boost",
                 "/home/james/vcpkg/installed/x64-linux/boost_1_86_0/boost/asio",
-                "/home/james/vcpkg/installed/x64-linux/boost_1_86_0"
+                "/home/james/vcpkg/installed/x64-linux/boost_1_86_0",
+                "/home/james/vcpkg/installed/x64-linux/nlohmann/include/nlohmann",
+                "/home/james/vcpkg/installed/x64-linux/nlohmann/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

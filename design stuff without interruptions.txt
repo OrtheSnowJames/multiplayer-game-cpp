@@ -1,0 +1,11 @@
+//checklist for client
+{
+    "goingup": false,
+    "goingleft": false,
+    "goingright": false,
+    "goingdown": false,
+    "quitGame": false,
+    "requestGame": false,
+    "currentGame": "",
+    "currentPlayer": ""
+}

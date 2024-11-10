@@ -1,20 +1,15 @@
-g++ -g server.cpp -lboost_system -lboost_thread -lboosCXX = g++
-CXXFLAGS = -std=c++11 -Wall -I/path/to/boost
-LDFLAGS = -L/path/to/boost/lib 
+#!/bin/bash
 
-TARGET = my_program
-SOURCES = main.cpp
+CXX=g++
+CXXFLAGS="-g -Wall -std=c++17 -I/usr/include/nlohmann -I./include -I/usr/local/include"
 
-OBJECTS = $(SOURCES:.cpp=.o)
+BOOST_LIBS="-lboost_system -lboost_thread -lboost_filesystem -lboost_regex -lboost_chrono -lboost_date_time"
 
-all: $(TARGET)
+# Make sure you put Correct Raylib paths
+RAYLIB_INCLUDE="-I/usr/local/include"
+RAYLIB_LIB="-L/usr/local/lib"
+RAYLIB_STATIC_LIB="/usr/local/lib/libraylib.a"
+RAYLIB_LIBS="${RAYLIB_STATIC_LIB} -lGL -lm -lpthread -ldl -lrt -lX11"
 
-$(TARGET): $(OBJECTS)
-    $(CXX) $(OBJECTS) $(LDFLAGS) -lboost_filesystem -o $(TARGET)
-
-%.o: %.cpp
-    $(CXX) $(CXXFLAGS) -c $< -o $@
-
-clean:
-    rm -f $(OBJECTS) $(TARGET)t_filesystem -lboost_regex -lboost_chrono -lboost_date_time -lboost_asio
-g++ -g client.cpp -lboost_system -lboost_thread -lboost_filesystem -lboost_regex -lboost_chrono -lboost_date_time -lboost_asio
+${CXX} ${CXXFLAGS} ${RAYLIB_INCLUDE} server.cpp -o server ${BOOST_LIBS}
+${CXX} ${CXXFLAGS} ${RAYLIB_INCLUDE} client.cpp -o client ${BOOST_LIBS} ${RAYLIB_LIBS}
