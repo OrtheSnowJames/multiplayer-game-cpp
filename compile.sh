@@ -11,5 +11,5 @@ RAYLIB_LIB="-L/usr/local/lib"
 RAYLIB_STATIC_LIB="/usr/local/lib/libraylib.a"
 RAYLIB_LIBS="${RAYLIB_STATIC_LIB} -lGL -lm -lpthread -ldl -lrt -lX11"
 
-${CXX} ${CXXFLAGS} ${RAYLIB_INCLUDE} server.cpp -o server ${BOOST_LIBS}
+${CXX} ${CXXFLAGS} ${RAYLIB_INCLUDE} server.cpp -o server ${BOOST_LIBS} ${RAYLIB_LIBS}
 ${CXX} ${CXXFLAGS} ${RAYLIB_INCLUDE} client.cpp -o client ${BOOST_LIBS} ${RAYLIB_LIBS}

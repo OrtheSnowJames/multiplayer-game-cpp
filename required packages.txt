@@ -2,7 +2,7 @@ apt
 git (not actual package name)
 libboost-all-dev
 nlohmann-json3 -dev (not actual package name)
-clone raylib repo and install
+clone raylib repo and install lib
 also reminder to change c_cpp_properties and add all of the packages for intellisense
 
 vs code
