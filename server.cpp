@@ -3,6 +3,7 @@
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
 #include "raylib.h"
+#include "coolfunctions.hpp"
 #include <thread>
 #include <random>
 #include <vector>
@@ -62,16 +63,17 @@ json broadcastMessage(json& message, json& game) {
     return game;
 }
 
-void broadcastGame(const json& game) {
+json broadcastGame(const json& game) {
     json newMessage = {
         {"getGame", game}
     };
     json gameCopy = game;
     broadcastMessage(newMessage, gameCopy);
+    return gameCopy;
 }
 
-void broadcastPlayer(json& player, json& game){
-    broadcastMessage(player, game);
+json broadcastPlayer(json& player, json& game){
+    game = broadcastMessage(player, game);
 }
 
 void broadcastGameLocal(const json& game, tcp::socket& socket){
@@ -82,15 +84,36 @@ void broadcastGameLocal(const json& game, tcp::socket& socket){
     boost::asio::write(socket, boost::asio::buffer(compact));
 }
 
+std::mutex socket_mutex;
 void acceptConnections(tcp::acceptor& acceptor) {
     auto socket = std::make_shared<tcp::socket>(io_context);
     acceptor.async_accept(*socket, [socket, &acceptor](boost::system::error_code ec) {
         if (!ec) {
+            std::lock_guard<std::mutex> lock(socket_mutex);
             connected_sockets.push_back(socket);
             std::cout << "New connection accepted!" << std::endl;
+            startReading(socket);
             acceptConnections(acceptor);
         } else {
             logToFile("Accept error: " + ec.message());
+        }
+    });
+}
+
+void startReading(std::shared_ptr<tcp::socket> socket) {
+    auto buffer = std::make_shared<boost::asio::streambuf>();
+    boost::asio::async_read_until(*socket, *buffer, "\n", [socket, buffer](boost::system::error_code ec, std::size_t length) {
+        if (!ec) {
+            std::istream is(buffer.get());
+            std::string message;
+            std::getline(is, message);
+            handleMessage(message, *socket, game);
+            startReading(socket);  // Continue reading from the socket
+        } else {
+            std::cerr << "Read error: " << ec.message() << std::endl;
+            logToFile("Read error: " + ec.message());
+            eraseUser(game, socket->native_handle());
+            socket->close();
         }
     });
 }
@@ -128,9 +151,14 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
                     break;
                 }
             }
-            std::string compact = game.dump() + "\n";
+            json newMsg = {
+                {"quitGame", true},
+                {"socket", socket.native_handle()}
+            };
+            std::string compact = newMsg.dump() + "\n";
             boost::asio::write(socket, boost::asio::buffer(compact));
         }
+        
     }
     if (readableMessage.contains("currentName")){
         int howManyDuplicates = 0;
@@ -163,7 +191,7 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
         std::string currentGame = readableMessage["currentGame"];
         if (currentGame != game.dump()){
             json newMessage = {
-                {"game", game}
+                {"getGame", game}
             };
             std::string compact = newMessage.dump() + "\n";
             boost::asio::write(socket, boost::asio::buffer(compact));
@@ -174,6 +202,7 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
             if (p["socket"] == socket.native_handle()){
                 p["spriteState"] = 1;
             }
+            game = broadcastPlayer(p, game);
         }
     }
     if (readableMessage.contains("goingdown") && readableMessage["goingdown"].get<bool>()){
@@ -181,6 +210,7 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
             if (p["socket"] == socket.native_handle()){
                 p["spriteState"] = 3;
             }
+            game = broadcastPlayer(p, game);
         }
     }
     if (readableMessage.contains("goingleft") && readableMessage["goingleft"].get<bool>()){
@@ -188,6 +218,7 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
             if (p["socket"] == socket.native_handle()){
                 p["spriteState"] = 2;
             }
+            game = broadcastPlayer(p, game);
         }
     }
     if (readableMessage.contains("goingright") && readableMessage["goingright"].get<bool>()){
@@ -195,6 +226,7 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
             if (p["socket"] == socket.native_handle()){
                 p["spriteState"] = 4;
             }
+            game = broadcastPlayer(p, game);
         }
     }
     if (!readableMessage.contains("goingright") && !readableMessage.contains("goingleft") && !readableMessage.contains("goingdown") && !readableMessage.contains("goingup")){
@@ -202,6 +234,7 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
             if (p["socket"] == socket.native_handle()){
                 p["spriteState"] = 3;
             }
+            game = broadcastPlayer(p, game);
         }
     }
     if (readableMessage.contains("currentPlayer") && !readableMessage["currentPlayer"].is_null()){
@@ -214,7 +247,6 @@ json handleMessage(const std::string& message, tcp::socket& socket, json& game){
             }
         }
     }
-    broadcastGame(game);
     return game;
 }
 
@@ -225,11 +257,16 @@ void startServer(int port) {
 }
 
 int main() {
-    const int screenWidth = std::getenv("SCREEN_WIDTH") ? std::atoi(std::getenv("SCREEN_WIDTH")) : 800;
-    const int screenHeight = std::getenv("SCREEN_HEIGHT") ? std::atoi(std::getenv("SCREEN_HEIGHT")) : 450;
-    int fps = std::getenv("FPS") ? std::atoi(std::getenv("FPS")) : 60;
-    const int port = std::getenv("PORT") ? std::atoi(std::getenv("PORT")) : 1234;
-
+    int fps = getEnvVar<int>("FPS", 100);
+    int WindowsOpen = 0;
+    int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
+    int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
+    int port = getEnvVar<int>("PORT", 1234);
+    std::string ip = getEnvVar<std::string>("IP", "127.0.0.1");
+    std::string LocalName = getEnvVar<std::string>("NAME", "Player");
+    bool cli = getEnvVar<bool>("CLI", false);
+    if (cli == false){
+          
     InitWindow(screenWidth, screenHeight, "Server");
 
     // Start the server in a separate thread
@@ -237,17 +274,30 @@ int main() {
 
     SetTargetFPS(fps);
     bool gameRunning = true;
+    std::thread inputThread([&gameRunning]() {
+        std::string input;
+        while (gameRunning) {
+            std::getline(std::cin, input);
+            if (input == "quit") {
+                gameRunning = false;
+                io_context.stop(); // Stop the io_context to end the server thread gracefully
+            }
+        }
+    });
+
     while (gameRunning) {
         BeginDrawing();
         ClearBackground(RAYWHITE);
         DrawText("This is the server window", 0, 0, 20, LIGHTGRAY);
         DrawText("Thank you for hosting a server", (screenWidth / 2), (screenHeight / 2 - 21), 15, BLACK);
         DrawText(nowOn.c_str(), (screenWidth / 2), (screenHeight / 2), 15, BLACK);
+        DrawText("Go to command line to use commands", (screenWidth / 2), (screenHeight / 2 + 21), 15, RED);
         EndDrawing();
 
         if (WindowShouldClose()) {
             gameRunning = false;
-            io_context.stop(); // Stop the io_context to end the server thread gracefully
+            io_context.restart(); // Stop the io_context to end the server thread gracefully
+            io_context.stop();
         }
     }
 
@@ -256,6 +306,58 @@ int main() {
         serverThread.join();
     }
 
+    // Join the input thread before exiting
+    if (inputThread.joinable()) {
+        inputThread.join();
+    }
+
     CloseWindow();
+    }
+    else if (cli == true){
+          
+    InitWindow(screenWidth, screenHeight, "Server");
+    std::cout << "Starting server with width = " << screenWidth << "height = " << screenHeight << " fps = " << fps << " FPS" << std::endl;
+    std::cout << "Starting server on port " << port << " with IP " << ip << std::endl;
+    std::cout << "this is the server CLI" << std::endl;
+    std::cout << "Thank you for hosting a server" << std::endl;
+    // Start the server in a separate thread
+    std::thread serverThread(startServer, port);
+
+    SetTargetFPS(fps);
+    bool gameRunning = true;
+    std::thread inputThread([&gameRunning]() {
+        std::string input;
+        while (gameRunning) {
+            std::getline(std::cin, input);
+            if (input == "quit") {
+                gameRunning = false;
+                io_context.stop(); // Stop the io_context to end the server thread gracefully
+            }
+        }
+    });
+
+    while (gameRunning) {
+        // Networking code
+        io_context.run();
+        
+        if (WindowShouldClose()) {
+            gameRunning = false;
+            io_context.restart(); // Stop the io_context to end the server thread gracefully
+            io_context.stop();
+        }
+    }
+
+    // Join the server thread before exiting
+    if (serverThread.joinable()) {
+        serverThread.join();
+    }
+
+    // Join the input thread before exiting
+    if (inputThread.joinable()) {
+        inputThread.join();
+    }
+
+    CloseWindow();
+    }
     return 0;
 }

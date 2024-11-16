@@ -7,8 +7,11 @@
 #include <fstream>
 #include <ctime>
 #include <iomanip>
+#include <unistd.h>
+#include <cerrno>
+#include <cstring>
+#include "coolfunctions.hpp"
 #include "raylib.h"
-
 using namespace std;
 using namespace boost::asio;
 using ip::tcp;
@@ -53,14 +56,16 @@ void logToFile(const std::string& message, const std::string& filename = "err.lo
     }
 }
 
-void restartApplication() {
-    CloseWindow();
+void restartApplication(int & WindowsOpenInt) {
+    for (int i = 0; i < WindowsOpenInt; i++){
+        CloseWindow();
+    }
     
     // Execute the run script again
     std::string command = "sudo bash ./run.sh";
     
     // Use exec to replace current process
-    if (execl("/bin/bash", "bash", "./run.sh", NULL) == -1) {
+    if (execl("/bin/bash", "bash", "./run.sh", nullptr) == -1) {
         std::cerr << "Failed to restart: " << strerror(errno) << std::endl;
         logToFile("Failed to restart: " + std::string(strerror(errno)), "err.log", true);
         exit(1);
@@ -68,17 +73,25 @@ void restartApplication() {
 }
 
 int main() {
-    // Initialization
-    Texture2D playerTexture = LoadTexture("player.png");
-    int screenWidth = std::getenv("SCREEN_WIDTH") ? std::atoi(std::getenv("SCREEN_WIDTH")) : 800;
-    int screenHeight = std::getenv("SCREEN_HEIGHT") ? std::atoi(std::getenv("SCREEN_HEIGHT")) : 450;
-    int fps = std::getenv("FPS") ? std::atoi(std::getenv("FPS")) : 60;
-    int port = std::getenv("PORT") ? std::atoi(std::getenv("PORT")) : 1234;
-    std::string ip = std::getenv("IP") ? std::getenv("IP") : "127.0.0.1";
-    std::string LocalName = std::getenv("NAME") ? std::getenv("NAME") : "Player";
+    int WindowsOpen = 0;
+    int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
+    int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
+    int fps = getEnvVar<int>("FPS", 60);
+    int port = getEnvVar<int>("PORT", 1234);
+    std::string ip = getEnvVar<std::string>("IP", "127.0.0.1");
+    std::string LocalName = getEnvVar<std::string>("NAME", "Player");
+    std::cout << "Starting game with width = " << screenWidth << "height = " << screenHeight << " fps = " << fps << " FPS" << std::endl;
 
     if (fps > 99) fps = 99;
 
+    // Initialize window
+    InitWindow(screenWidth, screenHeight, "Game");
+    WindowsOpen = WindowsOpen + 1;
+    SetTargetFPS(fps);
+
+    // Load player texture
+    Texture2D playerTexture = LoadTexture("/home/james/Documents/vSCProjects/multiplayer-game-cpp/player.png");
+    
     Image playerImage = LoadImageFromTexture(playerTexture);
     Image croppedImage1 = ImageFromImage(playerImage, (Rectangle){0, 0, playerTexture.width/2, playerTexture.height/2});
     Texture2D player1 = LoadTextureFromImage(croppedImage1);
@@ -111,10 +124,7 @@ int main() {
         {"state", {}}    // Store key states
     };
     bool gameRunning = true;
-
-    InitWindow(screenWidth, screenHeight, "Game");
-    SetTargetFPS(fps);
-
+    
     try {
         io_context io_context;
         tcp::socket socket(io_context);
@@ -128,6 +138,7 @@ int main() {
 
         // Main Game Loop
         while (!WindowShouldClose()) {
+            std::cout << "1" << std::endl;
             // Handle key presses
             int keyCode = GetKeyPressed();
             if (keyCode != 0) {
@@ -158,7 +169,7 @@ int main() {
                     }
                 }
             }
-            
+            std::cout << "2" << std::endl;
             std::string CurrentWindow = "game";
             if (!initGame) {
                 json newMessage = {
@@ -171,18 +182,28 @@ int main() {
             }
 
             if (IsWindowResized()) SetWindowSize(screenWidth, screenHeight);
-
+                        std::cout << "3" << std::endl;
             std::string message;
+            std::cout << "4" << std::endl;
             boost::system::error_code error;
+            std::cout << "5" << std::endl;
             boost::asio::read_until(socket, buffer, "\n", error);
+            std::cout << "6" << std::endl;
             if (!error) {
                 std::istream input_stream(&buffer);
                 std::getline(input_stream, message);
                 json messageJson = json::parse(message);
 
                 if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
-                    gameRunning = false;
-                    break;
+                    if (messageJson.contains("socket")){
+                        for (auto it = game["room1"]["players"].begin(); it != game["room1"]["players"].end(); ++it){
+                            if ((*it)["socket"] == messageJson["socket"]){
+                                game["room1"]["players"].erase(it);
+                                break;
+                            }
+                        }
+                    }
+                    if (messageJson["socket"] == socket.native_handle()){gameRunning = false; CloseWindow(); break;}
                 }
                 if (messageJson.contains("getGame")) {
                     game = messageJson["getGame"];
@@ -201,15 +222,18 @@ int main() {
             bool goingRight = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
             bool goingUp = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
             bool goingDown = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
+            std::cout << "4" << std::endl;
 
             if (localPlayer.contains("y") && localPlayer.contains("speed")) {
                 if (goingUp) localPlayer["y"] = localPlayer["y"].get<int>() - localPlayer["speed"].get<int>();
                 if (goingDown) localPlayer["y"] = localPlayer["y"].get<int>() + localPlayer["speed"].get<int>();
             }
+
             if (localPlayer.contains("x") && localPlayer.contains("speed")) {
                 if (goingLeft) localPlayer["x"] = localPlayer["x"].get<int>() - localPlayer["speed"].get<int>();
                 if (goingRight) localPlayer["x"] = localPlayer["x"].get<int>() + localPlayer["speed"].get<int>();
             }
+
             //init ui
             json fpsField = {{"x", 20}, {"y", 20}, {"width", 100}, {"height", 20}, {"text", "FPS: " + std::to_string(fps)}, {"editable", false}};
             json ipField = {{"x", 20}, {"y", 60}, {"width", 100}, {"height", 20}, {"text", "IP: " + ip}};
@@ -241,6 +265,7 @@ int main() {
                 }
                 DrawText("Settings", 15, 15, 20, WHITE);
                 DrawRectangle(10, 10, 30, 20, BLACK);
+                std::cout << "passs" << std::endl;
             }
             else if (CurrentWindow == "settings"){
                 ClearBackground(GRAY);
@@ -293,13 +318,20 @@ int main() {
                                             "export PORT=" + std::to_string(port) + "\n" + 
                                             "export IP=" + ip + "\n" + 
                                             "export NAME=" + LocalName + "\n";
-                    logToFile("enviornmentVars.sh", whatToWrite, false);
-                    InitWindow(screenWidth, screenHeight, "restarting"); 
+                    std::ofstream envFile("environmentVars.sh");
+                    if (envFile.is_open()) {
+                        envFile << whatToWrite;
+                        envFile.close();
+                    } else {
+                        logToFile("Failed to open environmentVars.sh for writing", "err.log", true);
+                    }
+                    InitWindow(screenWidth, screenHeight, "restarting");
+                    WindowsOpen = WindowsOpen + 1; 
                     BeginDrawing(); 
                     ClearBackground(RAYWHITE); 
                     DrawText("Restarting...", 0, 0, 50, BLACK); 
                     EndDrawing();
-                    CloseWindow();
+                    
                 }
                 else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                     Vector2 mousePos = GetMousePosition();
@@ -328,6 +360,7 @@ int main() {
         logToFile(std::string("ERROR: ") + e.what());
         std::cerr << "Exception: " << e.what() << std::endl;
         CloseWindow();
+        WindowsOpen = WindowsOpen - 1;
         return -1;
     }
 
@@ -339,5 +372,6 @@ int main() {
     UnloadTexture(player4);
 
     CloseWindow();
+    WindowsOpen = WindowsOpen - 1;
     return 0;
 }

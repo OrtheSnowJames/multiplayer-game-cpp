@@ -1,0 +1,4 @@
+2024-11-16 07:57:18 - ERROR: connect: Connection refused [system:111 at /usr/include/boost/asio/detail/reactive_socket_service.hpp:589 in function 'connect']
+2024-11-16 07:58:02 - ERROR: connect: Connection refused [system:111 at /usr/include/boost/asio/detail/reactive_socket_service.hpp:589 in function 'connect']
+2024-11-16 10:14:01 - ERROR: [json.exception.type_error.302] type must be string, but is null
+2024-11-16 10:15:03 - ERROR: connect: Connection refused [system:111 at /usr/include/boost/asio/detail/reactive_socket_service.hpp:589 in function 'connect']
