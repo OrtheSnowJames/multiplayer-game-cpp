@@ -1,5 +1,6 @@
+#!Bin/bash
 # Settings; set these vars to whatever you please
-export SCREEN_WIDTH=799 # put your preferred width here in px
+export SCREEN_WIDTH=400 # put your preferred width here in px
 export SCREEN_HEIGHT=400 # put your preferred height here in px
 export FPS=60 # put your desired fps here, recommended >75
 export PORT=1234 # put your desired port here; default is 1234

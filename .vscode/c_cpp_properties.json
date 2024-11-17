@@ -11,7 +11,7 @@
                 "/home/james/vcpkg/installed/x64-linux/nlohmann/include"
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/gcc",
+            "compilerPath": "/usr/bin/g++",
             "intelliSenseMode": "linux-gcc-x64"
         }
     ],
