@@ -44,51 +44,54 @@ T convertString(const std::string& str) {
     return result;
 }
 
-class Number {
-public:
-    enum class Type {
-        Integer,
-        Float
-    };
-
-    Number(int value) : type(Type::Integer), intValue(value), floatValue(static_cast<float>(value)) {}
-    Number(float value) : type(Type::Float), intValue(static_cast<int>(value)), floatValue(value) {}
-    Number(const std::string& str) {
-        if (hasDecimalPoint(str)) {
-            type = Type::Float;
-            floatValue = convertString<float>(str);
-            intValue = static_cast<int>(floatValue);
-        } else {
-            type = Type::Integer;
-            intValue = convertString<int>(str);
-            floatValue = static_cast<float>(intValue);
-        }
-    }
-
-    Type getType() const {
-        return type;
-    }
-
-    int toInt() const {
-        return intValue;
-    }
-
-    float toFloat() const {
-        return floatValue;
-    }
-
-    std::string toString() const {
-        if (type == Type::Integer) {
-            return std::to_string(intValue);
-        } else {
-            return std::to_string(floatValue);
-        }
-    }
-
+template<typename T = float>
+class num {
 private:
-    Type type;
-    int intValue;
-    float floatValue;
+    float value;
+
+public:
+    num() : value(0.0f) {}
+    num(float v) : value(v) {}
+    num(double v) : value(static_cast<float>(v)) {}
+    num(int v) : value(static_cast<float>(v)) {}
+    
+    // String constructor
+    num(const std::string& str) {
+        std::stringstream ss(str);
+        float v;
+        ss >> v;
+        value = v;
+    }
+
+    // Conversion operator
+    template<typename U>
+    explicit operator U() const {
+        if constexpr (std::is_same_v<U, int>) {
+            return static_cast<int>(value);
+        } else if constexpr (std::is_same_v<U, float>) {
+            return value;
+        } else if constexpr (std::is_same_v<U, double>) {
+            return static_cast<double>(value);
+        }
+        return static_cast<U>(value);
+    }
+
+    // Basic arithmetic operators
+    num operator+(const num& other) const { return num(value + other.value); }
+    num operator-(const num& other) const { return num(value - other.value); }
+    num operator*(const num& other) const { return num(value * other.value); }
+    num operator/(const num& other) const { return num(value / other.value); }
+
+    // Comparison operators
+    bool operator==(const num& other) const { return value == other.value; }
+    bool operator!=(const num& other) const { return value != other.value; }
+    bool operator<(const num& other) const { return value < other.value; }
+    bool operator>(const num& other) const { return value > other.value; }
+    bool operator<=(const num& other) const { return value <= other.value; }
+    bool operator>=(const num& other) const { return value >= other.value; }
+
+    // Get raw value
+    float get() const { return value; }
 };
 
 #endif

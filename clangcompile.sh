@@ -8,6 +8,9 @@ CLIENT_SRC="client.cpp"
 SERVER_BIN="server"
 CLIENT_BIN="client"
 
+#Define Optimization level
+OPTIMIZATION_LEVEL="-O1"
+
 # Define include directories
 INCLUDE_DIRS="-I/usr/local/include -I/usr/include/raylib -I/usr/include/nlohmann"
 
@@ -15,10 +18,10 @@ INCLUDE_DIRS="-I/usr/local/include -I/usr/include/raylib -I/usr/include/nlohmann
 LIBS="-lboost_system -lraylib -lpthread"
 
 # Compile server
-clang++ -c "${SERVER_SRC}" ${INCLUDE_DIRS} -o server.o
+clang++ -c  "${SERVER_SRC}" ${INCLUDE_DIRS} ${OPTIMIZATION_LEVEL} -o server.o
 
 # Compile client
-clang++ -c "${CLIENT_SRC}" ${INCLUDE_DIRS} -o client.o
+clang++ -c  "${CLIENT_SRC}" ${INCLUDE_DIRS} ${OPTIMIZATION_LEVEL} -o client.o
 
 # Link server
 clang++ server.o ${LIBS} -o "${SERVER_BIN}"
@@ -26,4 +29,4 @@ clang++ server.o ${LIBS} -o "${SERVER_BIN}"
 # Link client
 clang++ client.o ${LIBS} -o "${CLIENT_BIN}"
 
-echo "Compilation finished!"
+echo "Compilation finished"

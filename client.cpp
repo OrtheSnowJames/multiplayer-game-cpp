@@ -77,28 +77,38 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
         std::istream input_stream(&buffer);
         std::string message;
         std::getline(input_stream, message);
-        json messageJson = json::parse(message);
+        
+        try {
+            json messageJson = json::parse(message);
+            
+            if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
+                gameRunning = false;
+            }
+            if (messageJson.contains("getGame")) {
+                game = messageJson["getGame"];
+                initGameFully = true;
+            }
+            if (messageJson.contains("name") && messageJson["local"].get<bool>()) {
+                localPlayer = messageJson;
+            }
 
-        if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
-            gameRunning = false;
+            // Continue reading
+            boost::asio::async_read_until(socket, buffer, "\n", 
+                [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket);
+                });
         }
-        if (messageJson.contains("getGame")) {
-            game = messageJson["getGame"];
-            initGameFully = true;
+        catch (const json::exception& e) {
+            std::cerr << "JSON parsing error: " << e.what() << std::endl;
+            logToFile("JSON parsing error: " + std::string(e.what()));
+            InitWindow(800, 450, "Error"); BeginDrawing(); ClearBackground(RAYWHITE); DrawText("An unexpected error has occured at err.log. Please post in github issues.", 0, 0, 20, BLACK); EndDrawing();
         }
-        if (messageJson.contains("name") && messageJson["local"].get<bool>()) {
-            localPlayer = messageJson;
-        }
-
-        // Continue reading
-        boost::asio::async_read_until(socket, buffer, "\n", 
-            [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket);
-            });
     } else {
         std::cerr << "Read error: " << error.message() << std::endl;
         logToFile("Read error: " + error.message());
         gameRunning = false;
+        InitWindow(800, 450, "Error"); BeginDrawing(); ClearBackground(RAYWHITE); DrawText("An unexpected error has occured at err.log. Please post in github issues.", 0, 0, 20, BLACK); EndDrawing();
+
     }
 }
 
@@ -107,8 +117,9 @@ int main() {
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
     int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
     int fps = getEnvVar<int>("FPS", 60);
-    int port = getEnvVar<int>("PORT", 1234);
-    std::string ip = getEnvVar<std::string>("IP", "127.0.0.1");
+    int port = getEnvVar<int>("PORT", 5767);
+    std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
+    std::cout << "Trying to connect to " << ip << " on port " << port << std::endl;
     std::string LocalName = getEnvVar<std::string>("NAME", "Player");
     std::cout << "Starting game with width = " << screenWidth << " height = " << screenHeight << " fps = " << fps << " FPS" << std::endl;
 
@@ -189,24 +200,38 @@ int main() {
             {"state", {}}    // Store key states
         };
         bool gameRunning = true;
-
         try {
             io_context io_context;
             tcp::socket socket(io_context);
             tcp::endpoint endpoint(ip::address::from_string(ip), port);
-            socket.connect(endpoint);
+            boost::system::error_code ec;
+            int retryCount = 5;
+            while (retryCount > 0) {
+                socket.connect(endpoint, ec);
+                if (!ec) {
+                    break;
+                }
+                std::cerr << "Failed to connect: " << ec.message() << ". Retrying in 5 seconds..." << std::endl;
+                logToFile("Failed to connect: " + ec.message() + ". Retrying in 5 seconds...");
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+                retryCount--;
+            }
+            if (ec) {
+                std::cerr << "Failed to connect after retries: " << ec.message() << std::endl;
+                logToFile("Failed to connect after retries: " + ec.message());
+                return -1;
+            }
             std::cout << "Connected to server" << std::endl;
 
             boost::asio::streambuf buffer;
             bool initGame = false;
             bool initGameFully = false;
-
+            
             // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
                 [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket);
                 });
-
             // Main Game Loop
             while (!WindowShouldClose() && gameRunning) {
                 // Handle key presses
@@ -231,7 +256,7 @@ int main() {
                 }
                 
                 // Check key releases
-                for (auto& k : keys["state"].items()) {
+                for (auto k : keys["state"].items()) {
                     if (k.value().get<bool>()) {
                         int keyCode = keys["keymap"][k.key()].get<int>();
                         if (!IsKeyDown(keyCode)) {
@@ -253,16 +278,23 @@ int main() {
 
                 BeginDrawing();
                 ClearBackground(RAYWHITE);
-
+                //make sure local player is set to local
+                for (auto roomF : game){
+                for (auto p : game[roomF]["players"]) {
+                    if (p["name"] == LocalName) {
+                        localPlayer = p;
+                        p["local"] = true;
+                        break;
+                    }
+                } } 
                 // Draw players
-                for (auto& p : game[localPlayer["room"]]["players"]) {
+                for (const auto& p : game[localPlayer["room"]]["players"]) {
                     DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, BLACK);
                     DrawTexture(spriteSheet[p["spriteState"].get<std::string>()], p["x"].get<int>(), p["y"].get<int>(), WHITE);
                 }
                 
                 EndDrawing();
             }
-
             gameRunning = false;
             json quitMessage = {{"quitGame", true}};
             boost::asio::write(socket, boost::asio::buffer(quitMessage.dump() + "\n"));
@@ -276,8 +308,15 @@ int main() {
         }
 
         // Properly unload textures
+        try {
         UnloadTexture(playerTexture);
         UnloadTexture(player1);
+        UnloadTexture(player2);
+        UnloadTexture(player3);
+        UnloadTexture(player4);
+        } catch (const std::exception& e) {
+            std::cout << "May be a problem with unloading textures: " << e.what() << std::endl;
+        }
 
         CloseWindow();
         WindowsOpen = WindowsOpen - 1;

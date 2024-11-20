@@ -13,10 +13,16 @@ else
         read -p "Do you have pacman installed? [y/n]: " pacmanInstalled
         if [ ${pacmanInstalled} == "y" ]; then
             sudo pacman -S xterm
+            echo "Please run this script again."
         else
             sudo apt install xterm
+            echo "Please run this script again."
         fi
     else
+        read -p "Do you really want to use the normal terminal? [y/n]: " normalTerminal
+        if [ ${normalTerminal} == "y" ]; then
+            ./server
+        else
         echo "Please install xterm and run this script again."
     fi
 fi
