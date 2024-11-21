@@ -67,30 +67,37 @@ json createUser(const std::string& name, int id) {
 
 void eraseUser(json& game, int id) {
     try {
-        // Check if rooms exist
-        for (auto room : game){
-            if (room.contains("players")) {
-                // Check if player exists in room
-                for (auto& player : room["players"]) {
-                    if (player["socket"] == id) {
-                        room["players"].erase(player);
-                        return;
+        if (game.contains("room1") && game["room1"].contains("players")) {
+            auto& players = game["room1"]["players"];
+            players.erase(
+                std::remove_if(players.begin(), players.end(),
+                    [id](const json& p) { 
+                        return p["socket"] == id; 
                     }
-                }
-            }
-            else {
-                reportError("Room does not contain players");
-            }
+                ),
+                players.end()
+            );
         }
         
+        if (game.contains("room2") && game["room2"].contains("players")) {
+            auto& players = game["room2"]["players"];
+            players.erase(
+                std::remove_if(players.begin(), players.end(),
+                    [id](const json& p) { 
+                        return p["socket"] == id; 
+                    }
+                ),
+                players.end()
+            );
+        }
+
         // Remove socket from connected_sockets
-        auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(), [id](const std::shared_ptr<tcp::socket>& s) {
-            return s->native_handle() == id;
-        });
-        if (it != connected_sockets.end()) {
-            connected_sockets.erase(it);
-        }
-        
+        auto it = std::remove_if(connected_sockets.begin(), connected_sockets.end(),
+            [id](const std::shared_ptr<tcp::socket>& socket) {
+                return socket->native_handle() == id;
+            });
+        connected_sockets.erase(it, connected_sockets.end());
+
     } catch (const std::exception& e) {
         std::cerr << "Error in eraseUser: " << e.what() << std::endl;
         logToFile("Error in eraseUser: " + std::string(e.what()));
@@ -154,26 +161,37 @@ void broadcastGameLocal(const json& game, tcp::socket& socket) {
 }
 
 json handleMessage(const std::string& message, tcp::socket& socket) {
-    json readableMessage = json::parse(message);
-    if (readableMessage.contains("quitGame") && readableMessage["quitGame"].get<bool>()) {
-        eraseUser(game, socket.native_handle());
-    } else if (readableMessage.contains("currentName")) {
-        std::cout << "guys I actually didnt ignore a message" << std::endl;
-        std::string newName = readableMessage["currentName"].get<std::string>() +
-            std::to_string(std::count_if(game["room1"]["players"].begin(), game["room1"]["players"].end(),
-                                         [&](const json& p) { return p["name"] == readableMessage["currentName"]; }));
-        json newPlayer = createUser(newName, socket.native_handle());
-        game["room1"]["players"].push_back(newPlayer);
-        broadcastMessage(newPlayer);
-    } else if (readableMessage.contains("requestGame") && readableMessage["requestGame"].get<bool>()) {
-        broadcastGameLocal(game, socket);
-    } else if (readableMessage.contains("currentPlayer")) {
-        auto it = std::find_if(game["room1"]["players"].begin(), game["room1"]["players"].end(),
-                               [&](const json& p) { return p["socket"] == socket.native_handle(); });
-        if (it != game["room1"]["players"].end() && *it != readableMessage["currentPlayer"]) {
-            *it = readableMessage["currentPlayer"];
-            broadcastMessage(*it);
+    try {
+        std::cout << "Server received: " << message << std::endl;
+        json messageJson = json::parse(message);
+
+        if (messageJson.contains("currentName")) {
+            // Create new player
+            std::string playerName = messageJson["currentName"];
+            json newPlayer = createUser(playerName, socket.native_handle());
+            game["room1"]["players"].push_back(newPlayer);
+            
+            // Send player data back to client
+            json localPlayerData = newPlayer;
+            localPlayerData["local"] = true;
+            std::string response = localPlayerData.dump() + "\n";
+            boost::asio::write(socket, boost::asio::buffer(response));
+            std::cout << "Sent local player data: " << response;
+            
+            // Broadcast updated game state to all clients
+            json gameUpdate = {{"getGame", game}};
+            broadcastMessage(gameUpdate);
         }
+        else if (messageJson.contains("requestGame")) {
+            // Send current game state
+            json gameState = {{"getGame", game}};
+            std::string response = gameState.dump() + "\n";
+            boost::asio::write(socket, boost::asio::buffer(response));
+            std::cout << "Sent game state: " << response;
+        }
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error in handleMessage: " << e.what() << std::endl;
     }
     return game;
 }

@@ -71,41 +71,63 @@ void restartApplication(int & WindowsOpenInt) {
         exit(1);
     }
 }
-
-void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& game, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket) {
+json test = {
+    {"thing", {
+        {"name", "test"},
+        {"x", 10},
+        {"y", 10},
+        {"width", 10},
+        {"height", 10}
+    }}
+};
+void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& game, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket, bool& localPlayerSet) {
     if (!error) {
         std::istream input_stream(&buffer);
         std::string message;
         std::getline(input_stream, message);
         
         try {
+            std::cout << "Client received: " << message << std::endl;
             json messageJson = json::parse(message);
             
-            if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
-                gameRunning = false;
+            if (messageJson.contains("local") && messageJson["local"].get<bool>()) {
+                // Convert spriteState to string if it's a number
+                if (messageJson.contains("spriteState") && messageJson["spriteState"].is_number()) {
+                    messageJson["spriteState"] = std::to_string(messageJson["spriteState"].get<int>());
+                }
+                
+                localPlayer = messageJson;
+                localPlayerSet = true;
+                std::cout << "Local player set: " << localPlayer.dump() << std::endl;
+                
+                // Request full game state
+                json gameRequest = {{"requestGame", true}};
+                boost::asio::write(socket, boost::asio::buffer(gameRequest.dump() + "\n"));
             }
+            
             if (messageJson.contains("getGame")) {
+                auto& players = messageJson["getGame"]["room1"]["players"];
+                for (auto& player : players) {
+                    if (player.contains("spriteState") && player["spriteState"].is_number()) {
+                        player["spriteState"] = std::to_string(player["spriteState"].get<int>());
+                    }
+                }
+                
                 game = messageJson["getGame"];
                 initGameFully = true;
-            }
-            if (messageJson.contains("name") && messageJson["local"].get<bool>()) {
-                localPlayer = messageJson;
+                std::cout << "Game state updated" << std::endl;
             }
 
             // Continue reading
-            boost::asio::async_read_until(socket, buffer, "\n", 
-                [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket);
+            boost::asio::async_read_until(socket, buffer, "\n",
+                [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
         }
         catch (const json::exception& e) {
             std::cerr << "JSON parsing error: " << e.what() << "\nMessage was: " << message << std::endl;
             logToFile("JSON parsing error: " + std::string(e.what()) + "\nMessage was: " + message);
         }
-    } else {
-        std::cerr << "Read error: " << error.message() << std::endl;
-        logToFile("Read error: " + error.message());
-        gameRunning = false;
     }
 }
 
@@ -227,71 +249,44 @@ int main() {
             
             // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
-                [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket);
+                [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket, &localPlayerSet](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
             // Main Game Loop
             while (!WindowShouldClose() && gameRunning) {
-                // Handle key presses
-                int keyCode = GetKeyPressed();
-                if (keyCode != 0) {
-                    // Store both representations
-                    std::string keyName = TextFormat("%d", keyCode);
-                    std::string keyChar = (keyCode >= 32 && keyCode <= 126) ? 
-                        std::string(1, static_cast<char>(keyCode)) : "";
-                    
-                    // Store mappings
-                    keys["keymap"][keyName] = keyCode;
-                    if (!keyChar.empty()) {
-                        keys["keymap"][keyChar] = keyCode;
-                    }
-                    
-                    // Set state
-                    keys["state"][keyName] = true;
-                    if (!keyChar.empty()) {
-                        keys["state"][keyChar] = true;
-                    }
-                }
-                
-                // Check key releases
-                for (auto k : keys["state"].items()) {
-                    if (k.value().get<bool>()) {
-                        int keyCode = keys["keymap"][k.key()].get<int>();
-                        if (!IsKeyDown(keyCode)) {
-                            keys["state"][k.key()] = false;
-                        }
-                    }
-                }
+                // Run io_context to process async operations
+                io_context.poll();
 
-                // Request game state if not initialized
+                // Send initialization message only once at start
                 if (!initGame) {
                     json newMessage = {
-                        {"requestGame", true},
-                        {"currentGame", "game1"},
-                        {"currentPlayer", LocalName}
+                        {"currentName", LocalName}
                     };
-                    boost::asio::write(socket, boost::asio::buffer(newMessage.dump() + "\n"));
+                    std::string messageStr = newMessage.dump() + "\n";
+                    boost::asio::write(socket, boost::asio::buffer(messageStr));
+                    std::cout << "Sent player creation request" << std::endl;
                     initGame = true;
-                }
-
-                if (!localPlayerSet && game.contains("room1") && game["room1"].contains("players")) {
-                    // Find and set local player
-                    for (const auto& p : game["room1"]["players"]) {
-                        if (p.contains("name") && p["name"] == LocalName) {
-                            localPlayer = p;
-                            localPlayer["local"] = true;
-                            localPlayerSet = true;
-                            std::cout << "Local player set: " << localPlayer.dump() << std::endl;
-                            break;
-                        }
-                    }
                 }
 
                 BeginDrawing();
                 ClearBackground(RAYWHITE);
 
-                // Draw players only if local player is set
-                if (localPlayerSet && localPlayer.contains("room")) {
+                // Show loading screen until fully initialized
+                if (!localPlayerSet || !initGameFully) {
+                    DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
+                    EndDrawing();
+                    continue;  // Skip rest of loop until initialized
+                }
+
+                // Only handle game logic after initialization
+                if (localPlayerSet && initGameFully) {
+                    // Handle key presses
+                    int keyCode = GetKeyPressed();
+                    if (keyCode != 0) {
+                        // ... key handling code ...
+                    }
+                    
+                    // Draw game state
                     for (const auto& p : game[localPlayer["room"]]["players"]) {
                         DrawText(p["name"].get<std::string>().c_str(), 
                                 p["x"].get<int>() + 10, 
@@ -303,8 +298,6 @@ int main() {
                                    p["y"].get<int>(), 
                                    WHITE);
                     }
-                } else {
-                    DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
                 }
 
                 EndDrawing();
