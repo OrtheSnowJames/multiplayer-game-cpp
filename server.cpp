@@ -268,7 +268,7 @@ int main() {
                 // ... rest of input handling ...
             }
         });
-        Texture2D bg1Img = LoadTexture("/room1bg.png");
+        Texture2D bg1Img = LoadTexture("/room1Bg.jpeg");
         Image bg1 = LoadImageFromTexture(bg1Img);
         std::string currentRoom = "room1";
         while (!WindowShouldClose()) {

@@ -39,3 +39,10 @@ Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
 2024-11-20 07:48:44 - ERROR: [json.exception.type_error.302] type must be string, but is object
 2024-11-20 07:56:25 - Failed to connect: Connection refused. Retrying in 5 seconds...
 2024-11-20 07:56:30 - ERROR: [json.exception.type_error.302] type must be string, but is object
+2024-11-20 08:21:22 - Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-11-20 08:21:27 - ERROR: [json.exception.type_error.302] type must be string, but is object
+2024-11-20 08:24:29 - ERROR: [json.exception.type_error.302] type must be string, but is object
+2024-11-20 08:24:46 - ERROR: [json.exception.type_error.302] type must be string, but is object
+2024-11-20 08:27:31 - Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-11-20 08:27:36 - ERROR: [json.exception.type_error.302] type must be string, but is object
+2024-11-20 08:28:06 - ERROR: [json.exception.type_error.302] type must be string, but is object

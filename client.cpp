@@ -99,16 +99,13 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 });
         }
         catch (const json::exception& e) {
-            std::cerr << "JSON parsing error: " << e.what() << std::endl;
-            logToFile("JSON parsing error: " + std::string(e.what()));
-            InitWindow(800, 450, "Error"); BeginDrawing(); ClearBackground(RAYWHITE); DrawText("An unexpected error has occured at err.log. Please post in github issues.", 0, 0, 20, BLACK); EndDrawing();
+            std::cerr << "JSON parsing error: " << e.what() << "\nMessage was: " << message << std::endl;
+            logToFile("JSON parsing error: " + std::string(e.what()) + "\nMessage was: " + message);
         }
     } else {
         std::cerr << "Read error: " << error.message() << std::endl;
         logToFile("Read error: " + error.message());
         gameRunning = false;
-        InitWindow(800, 450, "Error"); BeginDrawing(); ClearBackground(RAYWHITE); DrawText("An unexpected error has occured at err.log. Please post in github issues.", 0, 0, 20, BLACK); EndDrawing();
-
     }
 }
 
@@ -226,6 +223,7 @@ int main() {
             boost::asio::streambuf buffer;
             bool initGame = false;
             bool initGameFully = false;
+            bool localPlayerSet = false;  // New flag to track if local player is set
             
             // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
@@ -276,23 +274,39 @@ int main() {
                     initGame = true;
                 }
 
+                if (!localPlayerSet && game.contains("room1") && game["room1"].contains("players")) {
+                    // Find and set local player
+                    for (const auto& p : game["room1"]["players"]) {
+                        if (p.contains("name") && p["name"] == LocalName) {
+                            localPlayer = p;
+                            localPlayer["local"] = true;
+                            localPlayerSet = true;
+                            std::cout << "Local player set: " << localPlayer.dump() << std::endl;
+                            break;
+                        }
+                    }
+                }
+
                 BeginDrawing();
                 ClearBackground(RAYWHITE);
-                //make sure local player is set to local
-                for (auto roomF : game){
-                for (auto p : game[roomF]["players"]) {
-                    if (p["name"] == LocalName) {
-                        localPlayer = p;
-                        p["local"] = true;
-                        break;
+
+                // Draw players only if local player is set
+                if (localPlayerSet && localPlayer.contains("room")) {
+                    for (const auto& p : game[localPlayer["room"]]["players"]) {
+                        DrawText(p["name"].get<std::string>().c_str(), 
+                                p["x"].get<int>() + 10, 
+                                p["y"].get<int>(), 
+                                20, 
+                                BLACK);
+                        DrawTexture(spriteSheet[p["spriteState"].get<std::string>()], 
+                                   p["x"].get<int>(), 
+                                   p["y"].get<int>(), 
+                                   WHITE);
                     }
-                } } 
-                // Draw players
-                for (const auto& p : game[localPlayer["room"]]["players"]) {
-                    DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, BLACK);
-                    DrawTexture(spriteSheet[p["spriteState"].get<std::string>()], p["x"].get<int>(), p["y"].get<int>(), WHITE);
+                } else {
+                    DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
                 }
-                
+
                 EndDrawing();
             }
             gameRunning = false;
