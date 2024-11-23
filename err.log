@@ -66,3 +66,17 @@ Error in eraseUser: [json.exception.type_error.307] cannot use erase() with arra
 2024-11-21 19:14:40 - ERROR: Failed to load player texture
 2024-11-21 20:10:46 - ERROR: Failed to load player texture
 2024-11-21 21:12:57 - ERROR: Failed to load player texture
+2024-11-22 19:44:30 - ERROR: Failed to load player texture
+2024-11-22 19:58:46 - ERROR: Failed to load player texture
+2024-11-22 20:10:08 - ERROR: Failed to load player texture
+2024-11-22 20:17:38 - Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-11-22 20:17:43 - ERROR: [json.exception.type_error.302] type must be string, but is number
+Fri Nov 22 20:17:43 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+2024-11-22 20:22:37 - Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-11-22 20:22:42 - ERROR: [json.exception.type_error.302] type must be string, but is number
+Fri Nov 22 20:22:42 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+2024-11-22 20:25:45 - ERROR: [json.exception.type_error.302] type must be string, but is number
+Fri Nov 22 20:25:45 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null

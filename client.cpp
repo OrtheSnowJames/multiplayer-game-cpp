@@ -16,6 +16,16 @@ using namespace std;
 using namespace boost::asio;
 using ip::tcp;
 using json = nlohmann::json;
+namespace fs = std::filesystem;
+fs::path root = fs::current_path();
+
+json game = {
+    {"room1", {
+        {"players", {}},
+        {"objects", {}},
+        {"enemies", {}}
+    }}
+};
 
 bool checkCollision(const json& object1, const json& object2) {
     if (!object1.contains("x") || !object1.contains("y") || 
@@ -71,6 +81,7 @@ void restartApplication(int & WindowsOpenInt) {
         exit(1);
     }
 }
+
 json test = {
     {"thing", {
         {"name", "test"},
@@ -80,7 +91,8 @@ json test = {
         {"height", 10}
     }}
 };
-void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& game, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket, bool& localPlayerSet) {
+
+void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket, bool& localPlayerSet) {
     if (!error) {
         std::istream input_stream(&buffer);
         std::string message;
@@ -108,8 +120,12 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
             if (messageJson.contains("getGame")) {
                 auto& players = messageJson["getGame"]["room1"]["players"];
                 for (auto& player : players) {
-                    if (player.contains("spriteState") && player["spriteState"].is_number()) {
-                        player["spriteState"] = std::to_string(player["spriteState"].get<int>());
+                    if (player.contains("spriteState")) {
+                        if (player["spriteState"].is_number()) {
+                            player["spriteState"] = std::to_string(player["spriteState"].get<int>());
+                        } else if (!player["spriteState"].is_string()) {
+                            player["spriteState"] = "";
+                        }
                     }
                 }
                 
@@ -118,10 +134,13 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 std::cout << "Game state updated" << std::endl;
             }
 
+            // Clear the buffer before starting a new read
+            buffer.consume(buffer.size());
+
             // Continue reading
             boost::asio::async_read_until(socket, buffer, "\n",
                 [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
+                    handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
         }
         catch (const json::exception& e) {
@@ -144,14 +163,55 @@ int main() {
 
     if (fps > 99) fps = 99;
 
-    // Init window
     InitWindow(screenWidth, screenHeight, "Game");
     WindowsOpen = WindowsOpen + 1;
     SetTargetFPS(fps);
 
     // Load player texture
     try {
-        Texture2D playerTexture = LoadTexture("/home/james/Documents/vSCProjects/multiplayer-game-cpp/player.png");
+        fs::path playerImgPath = root / "player.png";
+        fs::path bg1ImgPath = root / "room1Bg.jpeg";
+        
+        // Ensure paths are converted to strings
+        std::string playerImgPathStr = playerImgPath.string();
+        std::string bg1ImgPathStr = bg1ImgPath.string();
+        
+        Texture2D playerTexture = LoadTexture(playerImgPathStr.c_str());
+        Texture2D room1BgT = LoadTexture(bg1ImgPathStr.c_str());
+
+        Image room1Bg = LoadImageFromTexture(room1BgT);
+
+        if (playerTexture.id == 0) {
+            throw std::runtime_error("Failed to load player texture");
+        }
+
+        Image playerImage = LoadImageFromTexture(playerTexture);
+        if (playerImage.data == nullptr) {
+            throw std::runtime_error("Failed to load player image");
+        }
+
+        // crop and load north (bottom right)
+        Image croppedImage1 = ImageFromImage(playerImage, (Rectangle){static_cast<float>(playerTexture.width)/2, static_cast<float>(playerTexture.height)/2, static_cast<float>(playerTexture.width)/2, static_cast<float>(playerTexture.height)/2});
+        if (croppedImage1.data == nullptr) {
+            throw std::runtime_error("Failed to crop image 1");
+        }
+        Texture2D player1 = LoadTextureFromImage(croppedImage1);
+        if (player1.id == 0) {
+            throw std::runtime_error("Failed to load player 1 texture");
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+    }
+
+    // Load player texture
+    try {
+        fs::path playerImgPath = root / "player.png";
+        fs::path bg1ImgPath = root / "room1Bg.jpeg";
+        Texture2D playerTexture = LoadTexture(playerImgPath.string().c_str());
+        Texture2D room1BgT = LoadTexture(bg1ImgPath.string().c_str());
+
+        Image room1Bg = LoadImageFromTexture(room1BgT);
+
         if (playerTexture.id == 0) {
             throw std::runtime_error("Failed to load player texture");
         }
@@ -206,13 +266,6 @@ int main() {
         UnloadImage(playerImage);
         UnloadImage(croppedImage1);
 
-        json game = {
-            {"room1", {
-                {"players", {}},
-                {"objects", {}},
-                {"enemies", {}}
-            }}
-        };
         json localPlayer;
         json keys = {
             {"keymap", {}},  // Store key mappings
@@ -249,8 +302,8 @@ int main() {
             
             // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
-                [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket, &localPlayerSet](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                    handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
+                [&buffer, &localPlayer, &initGameFully, &gameRunning, &socket, &localPlayerSet](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                    handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
             // Main Game Loop
             while (!WindowShouldClose() && gameRunning) {
@@ -287,7 +340,7 @@ int main() {
                     }
                     
                     // Draw game state
-                    for (const auto& p : game[localPlayer["room"]]["players"]) {
+                    for (const auto p : game[localPlayer["room"]]["players"]) {
                         DrawText(p["name"].get<std::string>().c_str(), 
                                 p["x"].get<int>() + 10, 
                                 p["y"].get<int>(), 

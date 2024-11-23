@@ -65,7 +65,7 @@ json createUser(const std::string& name, int id) {
     };
 }
 
-void eraseUser(json& game, int id) {
+void eraseUser(int id) {
     try {
         if (game.contains("room1") && game["room1"].contains("players")) {
             auto& players = game["room1"]["players"];
@@ -113,18 +113,18 @@ json broadcastMessage(const json& message) {
                 boost::asio::write(**it, boost::asio::buffer(compact));
                 ++it;
             } else {
-                eraseUser(game, (*it)->native_handle());
+                eraseUser((*it)->native_handle());
                 it = connected_sockets.erase(it);
             }
         } catch (...) {
-            eraseUser(game, (*it)->native_handle());
+            eraseUser((*it)->native_handle());
             it = connected_sockets.erase(it);
         }
     }
     return game;
 }
 
-void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& game, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket) {
+void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket) {
     if (!error) {
         std::istream input_stream(&buffer);
         std::string message;
@@ -133,7 +133,7 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
 
         if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
             gameRunning = false;
-            eraseUser(game, socket.native_handle());
+            eraseUser(socket.native_handle());
         }
         if (messageJson.contains("getGame")) {
             game = messageJson["getGame"];
@@ -144,14 +144,14 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
         }
 
         boost::asio::async_read_until(socket, buffer, "\n", 
-            [&buffer, &game, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                handleRead(ec, bytes_transferred, buffer, game, localPlayer, initGameFully, gameRunning, socket);
+            [&buffer, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket);
             });
     } else {
         std::cerr << "Read error: " << error.message() << std::endl;
         logToFile("Read error: " + error.message());
         gameRunning = false;
-        eraseUser(game, socket.native_handle());
+        eraseUser(socket.native_handle());
     }
 }
 
@@ -206,7 +206,7 @@ void startReading(std::shared_ptr<tcp::socket> socket) {
             handleMessage(message, *socket);
             startReading(socket);
         } else {
-            eraseUser(game, socket->native_handle());
+            eraseUser(socket->native_handle());
             socket->close();
         }
     });
