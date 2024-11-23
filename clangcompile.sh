@@ -18,7 +18,7 @@ INCLUDE_DIRS="-I/usr/local/include -I/usr/include/raylib -I/usr/include/nlohmann
 LIBS="-lboost_system -lraylib -lpthread"
 read -p "Do you want to have advanced information? (y/n) " advancedInfo
 
-# Compile server
+# Compile server and client
 if [ ${advancedInfo} == "y" ]; then
     clang++ -c  "${SERVER_SRC}" ${INCLUDE_DIRS} ${OPTIMIZATION_LEVEL} -o server.o -g
     clang++ -c  "${CLIENT_SRC}" ${INCLUDE_DIRS} ${OPTIMIZATION_LEVEL} -o client.o -g

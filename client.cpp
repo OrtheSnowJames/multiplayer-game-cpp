@@ -26,6 +26,17 @@ json game = {
         {"enemies", {}}
     }}
 };
+json checklist = 
+{
+    {"goingup", false},
+    {"goingleft", false},
+    {"goingright", false},
+    {"goingdown", false},
+    {"quitGame", false},
+    {"requestGame", false},
+    {"currentGame", ""},
+    {"currentPlayer", ""}
+};
 
 bool checkCollision(const json& object1, const json& object2) {
     if (!object1.contains("x") || !object1.contains("y") || 
@@ -126,6 +137,8 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                         } else if (!player["spriteState"].is_string()) {
                             player["spriteState"] = "";
                         }
+                    } else {
+                        player["spriteState"] = "";
                     }
                 }
                 
@@ -330,7 +343,7 @@ int main() {
                     EndDrawing();
                     continue;  // Skip rest of loop until initialized
                 }
-
+                
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
                     // Handle key presses
@@ -340,7 +353,7 @@ int main() {
                     }
                     
                     // Draw game state
-                    for (const auto p : game[localPlayer["room"]]["players"]) {
+                    for (const auto p : game[localPlayer["room"].get<std::string>()]["players"]) {
                         DrawText(p["name"].get<std::string>().c_str(), 
                                 p["x"].get<int>() + 10, 
                                 p["y"].get<int>(), 

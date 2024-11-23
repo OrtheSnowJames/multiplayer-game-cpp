@@ -80,3 +80,13 @@ Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
 2024-11-22 20:25:45 - ERROR: [json.exception.type_error.302] type must be string, but is number
 Fri Nov 22 20:25:45 2024
 Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+2024-11-22 20:34:25 - ERROR: [json.exception.type_error.302] type must be string, but is number
+Fri Nov 22 20:34:25 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+2024-11-23 08:45:45 - ERROR: [json.exception.type_error.302] type must be string, but is number
+Sat Nov 23 08:45:45 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+2024-11-23 08:47:53 - Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-11-23 08:47:58 - ERROR: [json.exception.type_error.302] type must be string, but is number
+Sat Nov 23 08:47:58 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null

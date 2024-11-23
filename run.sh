@@ -1,4 +1,4 @@
-#!Bin/bash
+#!/bin/bash
 #runs multiplayer-game-cpp + server
 #how to use xterm: xterm -e "./app1; /bin/bash" & xterm -e "app2; /bin/bash" & ...
 sudo nano environmentVars.sh
