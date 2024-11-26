@@ -13,9 +13,20 @@
 #include <sstream>
 #include <chrono>
 #include <atomic>
+#include <boost/asio/signal_set.hpp>
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
+
+#include <boost/asio/signal_set.hpp>
+
+void setupSignalHandlers(boost::asio::io_context& io_context) {
+    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    signals.async_wait([&](const boost::system::error_code&, int) {
+        std::cout << "Shutting down server..." << std::endl;
+        io_context.stop();
+    });
+}
 
 std::vector<std::shared_ptr<tcp::socket>> connected_sockets;
 json game = {
@@ -36,17 +47,24 @@ std::mutex socket_mutex;
 // Add a atomic boolean for coordinating shutdown
 std::atomic<bool> shouldClose{false};
 
-void logToFile(const std::string& message) {
+enum LogLevel { INFO, ERROR, DEBUG };
+
+void logToFile(const std::string& message, LogLevel level = INFO) {
+    static const std::map<LogLevel, std::string> levelNames = {
+        {INFO, "INFO"}, {ERROR, "ERROR"}, {DEBUG, "DEBUG"}};
+
     std::ofstream logFile("err.log", std::ios::app);
     auto now = std::chrono::system_clock::now();
     std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-    logFile << std::ctime(&now_time) << message << std::endl;
+    logFile << "[" << levelNames.at(level) << "] " << std::ctime(&now_time) << message << std::endl;
 }
+
 void reportError(const std::string& message){
-    logToFile(message);
+    logToFile(message, ERROR);
     std::cerr << message << std::endl;
     return;
 }
+std::mutex game_mutex; // Add a separate mutex for game
 
 json createUser(const std::string& name, int id) {
     std::random_device rd;
@@ -58,7 +76,7 @@ json createUser(const std::string& name, int id) {
         {"score", 0},
         {"inventory", {{"shields", 0}, {"bananas", 0}}},
         {"socket", id},
-        {"spriteState", 0},
+        {"spriteState", 0}, // Ensure spriteState is an int
         {"skin", 1},
         {"local", false},
         {"room", 1}
@@ -66,6 +84,7 @@ json createUser(const std::string& name, int id) {
 }
 
 void eraseUser(int id) {
+    std::lock_guard<std::mutex> lock(game_mutex); // Lock game during modifications
     try {
         if (game.contains("room1") && game["room1"].contains("players")) {
             auto& players = game["room1"]["players"];
@@ -100,11 +119,12 @@ void eraseUser(int id) {
 
     } catch (const std::exception& e) {
         std::cerr << "Error in eraseUser: " << e.what() << std::endl;
-        logToFile("Error in eraseUser: " + std::string(e.what()));
+        logToFile("Error in eraseUser: " + std::string(e.what()), ERROR);
     }
 }
 
 void broadcastMessage(const json& message) {
+    std::lock_guard<std::mutex> lock(game_mutex); // Ensure thread-safe access
     std::string compact = message.dump() + "\n";
     auto it = connected_sockets.begin();
     while (it != connected_sockets.end()) {
@@ -145,7 +165,7 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
             }
         } catch (const std::exception& e) {
             std::cerr << "JSON parse error: " << e.what() << std::endl;
-            logToFile("JSON parse error: " + std::string(e.what()));
+            logToFile("JSON parse error: " + std::string(e.what()), ERROR);
             
         }
 
@@ -157,7 +177,7 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
             });
     } else {
         std::cerr << "Read error: " << error.message() << std::endl;
-        logToFile("Read error: " + error.message());
+        logToFile("Read error: " + error.message(), ERROR);
         eraseUser(socket.native_handle());
     }
 }
@@ -199,6 +219,7 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
         
     } catch (const std::exception& e) {
         std::cerr << "Error in handleMessage: " << e.what() << std::endl;
+        logToFile("Error in handleMessage: " + std::string(e.what()), ERROR);
     }
     game = game;
 }
@@ -228,6 +249,8 @@ void acceptConnections(tcp::acceptor& acceptor) {
             std::cout << "New connection accepted!" << std::endl;
             startReading(socket);
             acceptConnections(acceptor);
+        } else {
+            logToFile("Error accepting connection: " + ec.message(), ERROR);
         }
     });
 }
@@ -249,6 +272,7 @@ std::string getLocalIPAddress() {
     }
     catch (std::exception& e) {
         std::cerr << "Could not get local IP: " << e.what() << std::endl;
+        logToFile("Could not get local IP: " + std::string(e.what()), ERROR);
     }
     return "127.0.0.1";  // Fallback to localhost
 }
@@ -258,6 +282,7 @@ void startServer(int port) {
     tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
     acceptConnections(acceptor);
     std::cout << "Server started on " << localIP << ":" << port << std::endl;
+    logToFile("Server started on " + localIP + ":" + std::to_string(port), INFO);
     // Don't detach, let it run in the main thread
     io_context.run();
 }
@@ -396,9 +421,9 @@ int main() {
         serverThread.join();
     }
     try{
-        io_context.stop(); if (!cli) {CloseWindow();}
+        setupSignalHandlers(io_context); if (!cli) {CloseWindow();}
     } catch (const std::exception& e) {
-        logToFile(std::string("ERROR: ") + e.what());
+        logToFile(std::string("ERROR: ") + e.what(), ERROR);
         std::cerr << "Exception: " << e.what() << std::endl;
         return -1;
     }

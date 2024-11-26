@@ -5,7 +5,7 @@ export SCREEN_HEIGHT=400 # put your preferred height here in px
 export FPS=60 # put your desired fps here, recommended >75
 export PORT=5767 # put your desired port here; default is 5767
 export NAME="iamtheglubgalabgalabtheshwabadabadabadadada" # put your desired name here
-export IP=127.0.1.1 # put your server's IP here, for runServer put 127.0.1.1
+export IP=10.0.0.103 # put your server's IP here, for runServer put 127.0.1.1
 export SERVER_CLI=false # put true if you want to run the server in CLI mode
 
 # Settings will be saved in this file, but you have to change them here so the 
