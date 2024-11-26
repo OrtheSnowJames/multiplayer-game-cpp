@@ -213,12 +213,13 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 int socketId = messageJson["updatePosition"]["socket"].get<int>();
                 int newX = messageJson["updatePosition"].value("x", -1);
                 int newY = messageJson["updatePosition"].value("y", -1);
-
+                int spriteStateP = messageJson["updatePosition"].value("spriteState", 0);
                 for (auto& room : game.items()) {
                     for (auto& player : room.value()["players"]) {
                         if (player["socket"].get<int>() == socketId) {
                             if (newX != -1) player["x"] = newX;
                             if (newY != -1) player["y"] = newY;
+                            player["spriteState"] = spriteStateP;
                             break;
                         }
                     }
