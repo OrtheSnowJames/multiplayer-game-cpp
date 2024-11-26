@@ -62,6 +62,35 @@ bool checkCollision(const json& object1, const json& object2) {
     return !(left1 > right2 || right1 < left2 || top1 > bottom2 || bottom1 < top2);
 }
 
+// Modify Button struct
+struct Button {
+    Rectangle bounds;
+    const char* text;
+    bool pressed;
+    bool held;  // Add held state
+};
+
+// Update IsButtonPressed function
+bool IsButtonPressed(Button& button, Vector2 mousePoint) {
+    bool mouseOver = CheckCollisionPointRec(mousePoint, button.bounds);
+    button.held = mouseOver && IsMouseButtonDown(MOUSE_LEFT_BUTTON);
+    button.pressed = mouseOver && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    return button.held || button.pressed; // Return true for both initial press and hold
+}
+
+void DrawButton(const Button& button) {
+    Color buttonColor = button.pressed ? DARKGRAY : LIGHTGRAY;
+    DrawRectangleRec(button.bounds, buttonColor);
+    DrawRectangleLinesEx(button.bounds, 2, BLACK);
+    
+    // Center text in button
+    int textWidth = MeasureText(button.text, 30);
+    float textX = button.bounds.x + (button.bounds.width - textWidth) / 2;
+    float textY = button.bounds.y + (button.bounds.height - 30) / 2;
+    
+    DrawText(button.text, textX, textY, 30, BLACK);
+}
+
 int getSafeSpriteSate(const json& j, const std::string& key) {
     try {
         if (!j.contains(key)) {
@@ -242,6 +271,32 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
     }
 }
 
+void verifyImageFormat(const fs::path& imagePath) {
+    std::cout << "Verifying image: " << imagePath.string() << std::endl;
+    Image img = LoadImage(imagePath.string().c_str());
+    if (img.data) {
+        std::cout << "Image format: " << img.format << std::endl;
+        std::cout << "Dimensions: " << img.width << "x" << img.height << std::endl;
+        UnloadImage(img);
+    } else {
+        throw std::runtime_error("Failed to load image for verification");
+    }
+}
+
+void debugImagePath(const fs::path& path, const std::string& imageName) {
+    std::cout << "Checking " << imageName << " at: " << path.string() << std::endl;
+    std::cout << "Path exists: " << (fs::exists(path) ? "Yes" : "No") << std::endl;
+    std::cout << "Is regular file: " << (fs::is_regular_file(path) ? "Yes" : "No") << std::endl;
+}
+
+void debugTexture(const std::string& name, const Texture2D& texture, const fs::path& path) {
+    std::cout << "Loading " << name << ":\n";
+    std::cout << "Path: " << path.string() << "\n";
+    std::cout << "Exists: " << (fs::exists(path) ? "Yes" : "No") << "\n";
+    std::cout << "Texture ID: " << texture.id << "\n";
+    std::cout << "Dimensions: " << texture.width << "x" << texture.height << "\n";
+}
+
 int client_main() {
     int WindowsOpen = 0;
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
@@ -262,23 +317,56 @@ int client_main() {
 
     // Load player texture
     try {
-        fs::path playerImgPath = root / "player.png";
+        // Debug paths
+        fs::path playerImgPath = root / "assets" / "player.png";
+        fs::path bg1ImgPath = root / "assets" / "room1Bg.png";
         
-        // Add error checking for background image
-        fs::path bg1ImgPath = root / "room1Bg.png";
-        if (!fs::exists(bg1ImgPath)) {
-            std::string error = "Background image not found at: " + bg1ImgPath.string();
+        debugImagePath(playerImgPath, "Player Image");
+        debugImagePath(bg1ImgPath, "Background Image");
+
+        // Check if files exist
+        if (!fs::exists(playerImgPath)) {
+            std::string error = "Player image not found at: " + playerImgPath.string();
             logToFile(error, ERROR);
             throw std::runtime_error(error);
         }
-        
-        Texture2D playerTexture = LoadTexture(playerImgPath.string().c_str());
-        if (playerTexture.id == 0) {
-            std::string error = "Failed to load texture at: " + playerImgPath.string();
-            logToFile(error, ERROR);
+
+        if (!fs::exists(bg1ImgPath)) {
+            std::string error = "Background image not found at: " + bg1ImgPath.string();
+            logToFile(error, WARNING);
             std::cout << error << std::endl;
         }
-        Texture2D room1BgT;
+
+        // Load player texture with error checking
+        Texture2D playerTexture = LoadTexture(playerImgPath.string().c_str());
+        if (playerTexture.id == 0) {
+            std::string error = "Failed to load player texture at: " + playerImgPath.string();
+            logToFile(error, ERROR);
+            throw std::runtime_error(error);
+        }
+        std::cout << "Successfully loaded player texture with ID: " << playerTexture.id << std::endl;
+
+        // Load background with error checking
+        Texture2D room1BgT = {0};
+        if (fs::exists(bg1ImgPath)) {
+            room1BgT = LoadTexture(bg1ImgPath.string().c_str());
+            if (room1BgT.id == 0) {
+                std::string error = "Failed to load background texture at: " + bg1ImgPath.string();
+                logToFile(error, WARNING);
+            } else {
+                std::cout << "Successfully loaded background texture with ID: " << room1BgT.id << std::endl;
+            }
+        }
+        debugTexture("Background", room1BgT, bg1ImgPath);
+
+        // Load player image from texture
+        Image playerImage = LoadImageFromTexture(playerTexture);
+        if (playerImage.data == nullptr) {
+            std::string error = "Failed to create image from player texture";
+            logToFile(error, ERROR);
+            throw std::runtime_error(error);
+        }
+
         Image room1Bg;
         try {
             room1BgT = LoadTexture(bg1ImgPath.string().c_str());
@@ -294,11 +382,6 @@ int client_main() {
 
         if (playerTexture.id == 0) {
             throw std::runtime_error("Failed to load player texture");
-        }
-
-        Image playerImage = LoadImageFromTexture(playerTexture);
-        if (playerImage.data == nullptr) {
-            throw std::runtime_error("Failed to load player image");
         }
 
         // crop and load north (bottom right)
@@ -348,6 +431,10 @@ int client_main() {
             logToFile(error, ERROR);
             std::cout << error << std::endl;
         }
+        debugTexture("Player 1", player1, playerImgPath);
+        debugTexture("Player 2", player2, playerImgPath);
+        debugTexture("Player 3", player3, playerImgPath);
+        debugTexture("Player 4", player4, playerImgPath);
 
         std::map<std::string, Texture2D> spriteSheet;
         spriteSheet["1"] = player1; spriteSheet["W"] = player1;
@@ -434,7 +521,11 @@ int client_main() {
 
                 BeginDrawing();
                 ClearBackground(RAYWHITE);
-
+                Button buttonW = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 240, 60, 60}, "W", false};
+                Button buttonA = {{static_cast<float>(screenWidth) - 240, static_cast<float>(screenHeight) - 180, 60, 60}, "A", false};
+                Button buttonS = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 180, 60, 60}, "S", false};
+                Button buttonD = {{static_cast<float>(screenWidth) - 120, static_cast<float>(screenHeight) - 180, 60, 60}, "D", false};
+                DrawButton(buttonW);DrawButton(buttonA);DrawButton(buttonS);DrawButton(buttonD);
                 // Show loading screen until fully initialized
                 if (!localPlayerSet || !initGameFully) {
                     DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
@@ -445,6 +536,8 @@ int client_main() {
                 
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
+                    Vector2 mousePoint = GetMousePosition();
+
                     keys = DetectKeyPress();
                     bool send = false;
                     int moveSpeed = 5; // Adjust movement speed
@@ -453,7 +546,7 @@ int client_main() {
                     int prevX = checklist["x"].get<int>();
                     int prevY = checklist["y"].get<int>();
 
-                    if (keys["w"]) {
+                    if (keys["w"] || IsButtonPressed(buttonW, mousePoint)) {
                         checklist["goingup"] = true;
                         checklist["y"] = prevY - moveSpeed;
                         checklist["spriteState"] = 1; // North facing
@@ -462,7 +555,7 @@ int client_main() {
                         checklist["goingup"] = false;
                     }
 
-                    if (keys["s"]) {
+                    if (keys["s"] || IsButtonPressed(buttonS, mousePoint)) {
                         checklist["goingdown"] = true; 
                         checklist["y"] = prevY + moveSpeed;
                         checklist["spriteState"] = 3; // South facing
@@ -471,7 +564,7 @@ int client_main() {
                         checklist["goingdown"] = false;
                     }
 
-                    if (keys["a"]) {
+                    if (keys["a"] || IsButtonPressed(buttonA, mousePoint)) {
                         checklist["goingleft"] = true;
                         checklist["x"] = prevX - moveSpeed;
                         checklist["spriteState"] = 4; // West facing
@@ -480,7 +573,7 @@ int client_main() {
                         checklist["goingleft"] = false;
                     }
 
-                    if (keys["d"]) {
+                    if (keys["d"] || IsButtonPressed(buttonD, mousePoint)) {
                         checklist["goingright"] = true;
                         checklist["x"] = prevX + moveSpeed;
                         checklist["spriteState"] = 2; // East facing
