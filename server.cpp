@@ -41,6 +41,36 @@ json game = {
         {"enemies", {}}
     }}
 };
+
+json lookForPlayer(tcp::socket& socket) {
+    int sockID = socket.native_handle();
+    for (auto& room : game.items()) {  // Iterate through rooms
+        if (room.value().contains("players")) {
+            for (auto& player : room.value()["players"]) {
+                if (player["socket"].get<int>() == sockID) {
+                    return player;
+                }
+            }
+        }
+    }
+    json error = {{"error", "player not found"}};
+    return error;
+}
+
+std::string lookForRoom(tcp::socket& socket) {
+    int sockID = socket.native_handle();
+    for (auto& room : game.items()) {  // Iterate through rooms
+        if (room.value().contains("players")) {
+            for (auto& player : room.value()["players"]) {
+                if (player["socket"].get<int>() == sockID) {
+                    return room.key();  // Return room name as string
+                }
+            }
+        }
+    }
+    return "room1";  // Default room
+}
+
 boost::asio::io_context io_context;
 std::mutex socket_mutex;
 
@@ -70,8 +100,8 @@ json createUser(const std::string& name, int id) {
     std::random_device rd;
     return {
         {"name", name},
-        {"x", rd() % 800},
-        {"y", rd() % 450},
+        {"x", rd() % 600},
+        {"y", rd() % 300},
         {"speed", 5},
         {"score", 0},
         {"inventory", {{"shields", 0}, {"bananas", 0}}},
@@ -144,54 +174,47 @@ void broadcastMessage(const json& message) {
     game = game;
 }
 
-void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket) {
-    if (!error) {
-        std::istream input_stream(&buffer);
-        std::string message;
-        std::getline(input_stream, message);
-        try {
-            json messageJson = json::parse(message);
-
-            if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
-                gameRunning = false;
-                eraseUser(socket.native_handle());
-            }
-            if (messageJson.contains("getGame") && !initGameFully) {
-                game = messageJson["getGame"];
-                initGameFully = true;
-            }
-            if (messageJson.contains("name") && messageJson["local"].get<bool>()) {
-                localPlayer = messageJson;
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "JSON parse error: " << e.what() << std::endl;
-            logToFile("JSON parse error: " + std::string(e.what()), ERROR);
-            
-        }
-
-        buffer.consume(bytes_transferred); // Clear the buffer after reading
-
-        boost::asio::async_read_until(socket, buffer, "\n", 
-            [&buffer, &localPlayer, &initGameFully, &gameRunning, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket);
-            });
-    } else {
-        std::cerr << "Read error: " << error.message() << std::endl;
-        logToFile("Read error: " + error.message(), ERROR);
-        eraseUser(socket.native_handle());
-    }
-}
-
-void broadcastGameLocal(const json& game, tcp::socket& socket) {
-    std::string compact = json({{"getGame", game}}).dump() + "\n";
-    boost::asio::write(socket, boost::asio::buffer(compact));
-}
-
 void handleMessage(const std::string& message, tcp::socket& socket) {
     try {
-        std::cout << "Server received: " << message << std::endl;
         json messageJson = json::parse(message);
 
+        if (messageJson.contains("x") || messageJson.contains("y")) {
+            json player = lookForPlayer(socket);
+            std::string roomName = lookForRoom(socket);
+            
+            if (!player.contains("error")) {
+                bool changed = false;
+                auto& playerInGame = game[roomName]["players"];
+                
+                // Find and update the correct player
+                for (auto& p : playerInGame) {
+                    if (p["socket"].get<int>() == socket.native_handle()) {
+                        if (messageJson.contains("x")) {
+                            p["x"] = messageJson["x"].get<int>();
+                            changed = true;
+                        }
+                        if (messageJson.contains("y")) {
+                            p["y"] = messageJson["y"].get<int>();
+                            changed = true;
+                        }
+                        break;
+                    }
+                }
+
+                if (changed) {
+                    // Only send position update, not full game state
+                    json positionUpdate = {
+                        {"updatePosition", {
+                            {"socket", socket.native_handle()},
+                            {"x", messageJson["x"]},
+                            {"y", messageJson["y"]}
+                        }}
+                    };
+                    broadcastMessage(positionUpdate);
+                }
+            }
+        }
+        // Other message handling remains the same...
         if (messageJson.contains("currentName")) {
             // Create new player
             std::string playerName = messageJson["currentName"];
@@ -216,13 +239,76 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
             boost::asio::write(socket, boost::asio::buffer(response));
             std::cout << "Sent game state: " << response;
         }
-        
+        else if (messageJson.contains("goingUp") || messageJson.contains("goingDown") || 
+                 messageJson.contains("goingLeft") || messageJson.contains("goingRight") ||
+                 messageJson.contains("quitGame")) {
+            bool send = false;
+            json thisPlayer;
+            json thisPlayerRoom;
+            try {
+                thisPlayer = lookForPlayer(socket);
+                thisPlayerRoom = lookForRoom(socket);
+            } catch(const std::exception& e) {
+                reportError("Error in handleMessage: " + std::string(e.what()));
+            }
+
+            if (messageJson.contains("goingUp") && messageJson["goingUp"].get<bool>() == true) {
+                game[thisPlayerRoom][thisPlayer]["spriteState"] = 1;
+                send = true;
+            }
+            if (messageJson.contains("goingDown") && messageJson["goingDown"].get<bool>() == true) {
+                game[thisPlayerRoom][thisPlayer]["spriteState"] = 3;
+                send = true;
+            }
+            if (messageJson.contains("goingLeft") && messageJson["goingLeft"].get<bool>() == true) {
+                game[thisPlayerRoom][thisPlayer]["spriteState"] = 4;
+                send = true;
+            }
+            if (messageJson.contains("goingRight") && messageJson["goingRight"].get<bool>() == true) {
+                game[thisPlayerRoom][thisPlayer]["spriteState"] = 2;
+                send = true;
+            }
+            if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>() == true) {
+                game[thisPlayerRoom]["players"].erase(std::remove(game[thisPlayerRoom]["players"].begin(), game[thisPlayerRoom]["players"].end(), thisPlayer), game[thisPlayerRoom]["players"].end());
+                send = true;
+            }
+            if (send) {
+                json gameUpdate = {{"getGame", game}};
+                broadcastMessage(gameUpdate);
+            }
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error in handleMessage: " << e.what() << std::endl;
         logToFile("Error in handleMessage: " + std::string(e.what()), ERROR);
     }
     game = game;
 }
+
+void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, tcp::socket& socket) {
+    if (!error) {
+        std::istream input_stream(&buffer);
+        std::string message;
+        std::getline(input_stream, message);
+        handleMessage(message, socket);
+        buffer.consume(bytes_transferred); // Clear the buffer after reading
+
+        boost::asio::async_read_until(socket, buffer, "\n", 
+            [&buffer, &socket](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                handleRead(ec, bytes_transferred, buffer, socket);
+            });
+    } else {
+        std::cerr << "Read error: " << error.message() << std::endl;
+        logToFile("Read error: " + error.message(), ERROR);
+        eraseUser(socket.native_handle());
+    }
+}
+
+void broadcastGameLocal(const json& game, tcp::socket& socket) {
+    std::string compact = json({{"getGame", game}}).dump() + "\n";
+    boost::asio::write(socket, boost::asio::buffer(compact));
+}
+
+
 
 void startReading(std::shared_ptr<tcp::socket> socket) {
     auto buffer = std::make_shared<boost::asio::streambuf>();

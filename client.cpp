@@ -101,15 +101,13 @@ void logToFile(const std::string& message, LogLevel level = ERROR, const std::st
 std::map<std::string, bool> DetectKeyPress() {
     std::map<std::string, bool> keyStates;
     
-    // check for pressed key
-    int key = GetKeyPressed();
-    
-    // if key is pressed, add it to keys map
-    if (key != 0) { // Check if a key was actually pressed
-        // Convert the key to a string and set its state to true
-        std::string keyString = (key >= KEY_A && key <= KEY_Z) ? std::string(1, char(key)) : "unknown";
-        keyStates[keyString] = true;
-    }
+    // Check for key states
+    keyStates["w"] = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
+    keyStates["a"] = IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT); 
+    keyStates["s"] = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
+    keyStates["d"] = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
+    keyStates["q"] = IsKeyDown(KEY_Q);
+
     return keyStates;
 }
 
@@ -159,38 +157,39 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
         std::string message;
         std::getline(input_stream, message);
         
+        std::cout << "Received message: " << message << std::endl;
+        std::cout << "LocalPlayerSet: " << localPlayerSet << std::endl;
+        std::cout << "InitGameFully: " << initGameFully << std::endl;
+
         try {
             std::cout << "Client received: " << message << std::endl;
             json messageJson = json::parse(message);
     
             if (messageJson.contains("local") && messageJson["local"].get<bool>()) {
                 // Ensure spriteState is treated as an int
-                try{
-                if (messageJson.contains("spriteState")) {
-                    messageJson["spriteState"] = getSafeSpriteSate(messageJson, "spriteState");
-                    checklist["x"] = messageJson["x"];
-                    checklist["y"] = messageJson["y"];
-                    //construct room to add to
-                    std::string roomToAddTo = "room" + std::to_string(messageJson["room"].get<int>());
-                    game[roomToAddTo]["players"].push_back(messageJson);
-            }            else if (messageJson.contains("local") && !messageJson["local"].get<bool>()){
-                if (messageJson.contains("spriteState")) {
-                    messageJson["spriteState"] = getSafeSpriteSate(messageJson, "spriteState");
-                    //construct room to add to
-                    std::string roomToAddTo = "room" + std::to_string(messageJson["room"].get<int>());
-                    game[roomToAddTo]["players"].push_back(messageJson);
+                try {
+                    if (messageJson.contains("spriteState")) {
+                        messageJson["spriteState"] = getSafeSpriteSate(messageJson, "spriteState");
+                        checklist["x"] = messageJson["x"];
+                        checklist["y"] = messageJson["y"];
+                        //construct room to add to
+                        std::string roomToAddTo = "room" + std::to_string(messageJson["room"].get<int>());
+                        game[roomToAddTo]["players"].push_back(messageJson);
+                    }
+                } catch(const std::exception& e) {
+                    std::cerr << "ERROR AT SPRITESTATE IN HANDLE READ: " << e.what() << std::endl;
+                    logToFile("ERROR AT SPRITESTATE: " + std::string(e.what()), ERROR);
                 }
-            }}catch(const std::exception& e)
-            {std::cerr << "ERROR AT SPRITESTATE IN HANDLE READ: " << e.what() << std::endl; logToFile("ERROR AT SPRITESTATE: " + std::string(e.what()), ERROR);}
 
-                
                 localPlayer = messageJson;
                 localPlayerSet = true;
                 std::cout << "Local player set: " << localPlayer.dump() << std::endl;
                 
-                // Request full game state
-                json gameRequest = {{"requestGame", true}};
-                boost::asio::write(socket, boost::asio::buffer(gameRequest.dump() + "\n"));
+                // Request full game state only if not already initialized
+                if (!initGameFully) {
+                    json gameRequest = {{"requestGame", true}};
+                    boost::asio::write(socket, boost::asio::buffer(gameRequest.dump() + "\n"));
+                }
             }
             
             if (messageJson.contains("getGame")) {
@@ -208,6 +207,22 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 game = messageJson["getGame"];
                 initGameFully = true;
                 std::cout << "Game state updated" << std::endl;
+            }
+
+            if (messageJson.contains("updatePosition")) {
+                int socketId = messageJson["updatePosition"]["socket"].get<int>();
+                int newX = messageJson["updatePosition"].value("x", -1);
+                int newY = messageJson["updatePosition"].value("y", -1);
+
+                for (auto& room : game.items()) {
+                    for (auto& player : room.value()["players"]) {
+                        if (player["socket"].get<int>() == socketId) {
+                            if (newX != -1) player["x"] = newX;
+                            if (newY != -1) player["y"] = newY;
+                            break;
+                        }
+                    }
+                }
             }
 
             // Clear the buffer before starting a new read
@@ -328,6 +343,7 @@ int client_main() {
         UnloadImage(croppedImage1);
 
         json localPlayer;
+        json previousChecklist = checklist; // Store the previous checklist
         std::map<std::string, bool> keys = DetectKeyPress();
         bool gameRunning = true;
         try {
@@ -373,9 +389,13 @@ int client_main() {
             bool initGameFully = false;
             bool localPlayerSet = false;  // New flag to track if local player is set
             
+            // Timer for sending updates
+            auto lastSendTime = std::chrono::steady_clock::now();
+            const std::chrono::milliseconds sendInterval(301); // 301ms interval; average human reaction time is 250ms but we want to save on aws container costs
+
             // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
-                [&buffer, &localPlayer, &initGameFully, &gameRunning, &socket, &localPlayerSet](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
             // Main Game Loop
@@ -400,66 +420,107 @@ int client_main() {
                 // Show loading screen until fully initialized
                 if (!localPlayerSet || !initGameFully) {
                     DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
+                    DrawText("Try reconnecting if you've been here for a while", 40, 40, 20, BLACK);
                     EndDrawing();
                     continue;  // Skip rest of loop until initialized
                 }
                 
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
-                    std::string KeyPressed;
-                    for (auto& key : keys){
-                        if (key.second == true) KeyPressed = key.first;
-                    }
+                    keys = DetectKeyPress();
+                    bool send = false;
+                    int moveSpeed = 5; // Adjust movement speed
+
+                    // Store previous position
+                    int prevX = checklist["x"].get<int>();
+                    int prevY = checklist["y"].get<int>();
+
                     if (keys["w"]) {
                         checklist["goingup"] = true;
-                        checklist["y"] = checklist["y"].get<int>() - 1;
+                        checklist["y"] = prevY - moveSpeed;
+                        checklist["spriteState"] = 1; // North facing
+                        send = true;
+                    } else {
+                        checklist["goingup"] = false;
                     }
+
                     if (keys["s"]) {
-                        checklist["goingdown"] = true;
-                        checklist["y"] = checklist["y"].get<int>() + 1;
+                        checklist["goingdown"] = true; 
+                        checklist["y"] = prevY + moveSpeed;
+                        checklist["spriteState"] = 3; // South facing
+                        send = true;
+                    } else {
+                        checklist["goingdown"] = false;
                     }
+
                     if (keys["a"]) {
                         checklist["goingleft"] = true;
-                        checklist["x"] = checklist["x"].get<int>() - 1;
+                        checklist["x"] = prevX - moveSpeed;
+                        checklist["spriteState"] = 4; // West facing
+                        send = true;
+                    } else {
+                        checklist["goingleft"] = false;
                     }
+
                     if (keys["d"]) {
                         checklist["goingright"] = true;
-                        checklist["x"] = checklist["x"].get<int>() + 1;
+                        checklist["x"] = prevX + moveSpeed;
+                        checklist["spriteState"] = 2; // East facing
+                        send = true;
+                    } else {
+                        checklist["goingright"] = false;
                     }
-                    if (keys["q"]) {
-                        checklist["quitGame"] = true;
-                        CloseWindow();
+
+                    // Add bounds checking
+                    int screenWidth = GetScreenWidth();
+                    int screenHeight = GetScreenHeight();
+                    
+                    checklist["x"] = std::max(0, std::min(screenWidth - 32, checklist["x"].get<int>()));
+                    checklist["y"] = std::max(0, std::min(screenHeight - 32, checklist["y"].get<int>()));
+
+                    // Only send if checklist has changed and interval has passed
+                    auto now = std::chrono::steady_clock::now();
+                    if (send && (now - lastSendTime) >= sendInterval && checklist != previousChecklist) {
+                        std::string messageStr = checklist.dump() + "\n";
+                        boost::asio::write(socket, boost::asio::buffer(messageStr));
+                        lastSendTime = now;
+                        previousChecklist = checklist; // Update previous checklist
                     }
-                
-                    // Draw game state
-                    try {
-                        std::string roomStr = "room" + std::to_string(localPlayer["room"].get<int>());
-                        if (game.contains(roomStr) && game[roomStr].contains("players")) {
-                            for (const auto& p : game[roomStr]["players"]) {
-                                DrawText(p["name"].get<std::string>().c_str(), 
-                                        p["x"].get<int>() + 10, 
-                                        p["y"].get<int>(), 
-                                        20, 
-                                        BLACK);
-                                int spriteKey = getSafeSpriteSate(p, "spriteState");
-                                std::string spriteKeyStr = std::to_string(spriteKey);
-                                if (spriteSheet.count(spriteKeyStr) > 0) {
-                                    DrawTexture(spriteSheet[spriteKeyStr], 
-                                               p["x"].get<int>(), 
-                                               p["y"].get<int>(), 
-                                               WHITE);
-                                } else {
-                                    DrawTexture(spriteSheet["1"],
-                                               p["x"].get<int>(), 
-                                               p["y"].get<int>(), 
-                                               WHITE);
-                                }
+                }
+
+                if (localPlayerSet && initGameFully) {
+                    BeginDrawing();
+                    ClearBackground(RAYWHITE);
+
+                    // Draw background if available
+                    if (room1BgT.id != 0) {
+                        DrawTexture(room1BgT, 0, 0, WHITE);
+                    }
+
+                    // Draw all players
+                    for (auto& room : game.items()) {
+                        for (auto& player : room.value()["players"]) {
+                            int x = player["x"].get<int>();
+                            int y = player["y"].get<int>();
+                            
+                            // Draw player sprite based on spriteState
+                            int spriteState = player["spriteState"].get<int>();
+                            std::string spriteKey = std::to_string(spriteState);
+                            
+                            if (spriteSheet.find(spriteKey) != spriteSheet.end()) {
+                                DrawTexture(spriteSheet[spriteKey], x, y, WHITE);
+                            } else {
+                                // Fallback rectangle if sprite not found
+                                DrawRectangle(x, y, 32, 32, RED);
                             }
+                            
+                            // Draw player name
+                            DrawText(player["name"].get<std::string>().c_str(), 
+                                    x - 10, y - 20, 20, BLACK);
                         }
-                    } catch (const json::exception& e) {
-                        logToFile("Error accessing room data: " + std::string(e.what()), ERROR);
-                        std::cerr << "JSON error: " << e.what() << std::endl;
                     }
+
+                    EndDrawing();
                 }
 
                 EndDrawing();
