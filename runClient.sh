@@ -11,6 +11,8 @@ if [ ${xtermInstalled} == "y" ]; then
     rm client
     cp build/client .
     chmod +x ./client
+    chmod 644 *.png
+
     ./client
 else
     read -p "Do you have pacman or apt installed? [y/n]: " packageManager

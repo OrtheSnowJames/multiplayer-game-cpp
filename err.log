@@ -4,3 +4,30 @@ Error in handleMessage: [json.exception.type_error.302] type must be string, but
 2024-11-25 19:45:59 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
 [INFO] Mon Nov 25 19:45:59 2024
 Server started on 127.0.0.1:5767
+[INFO] Mon Nov 25 20:05:56 2024
+Server started on 10.0.0.103:5767
+2024-11-25 20:05:56 [WARNING] Failed to load background texture, continuing without background
+[ERROR] Mon Nov 25 20:06:33 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Mon Nov 25 20:17:59 2024
+Server started on 10.0.0.103:5767
+2024-11-25 20:17:59 [WARNING] Failed to load background texture, continuing without background
+[ERROR] Mon Nov 25 20:18:25 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Mon Nov 25 20:21:35 2024
+Server started on 10.0.0.103:5767
+2024-11-25 20:21:35 [WARNING] Failed to load background texture, continuing without background
+[ERROR] Mon Nov 25 20:21:44 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Mon Nov 25 20:22:16 2024
+Server started on 10.0.0.103:5767
+2024-11-25 20:22:16 [WARNING] Failed to load background texture, continuing without background
+[ERROR] Mon Nov 25 20:22:33 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+2024-11-25 20:22:38 [WARNING] Failed to load background texture, continuing without background
+2024-11-25 20:25:01 [WARNING] Failed to load background texture, continuing without background
+2024-11-25 20:25:01 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
+[INFO] Mon Nov 25 20:25:01 2024
+Server started on 10.0.0.103:5767
+[ERROR] Mon Nov 25 20:32:09 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null

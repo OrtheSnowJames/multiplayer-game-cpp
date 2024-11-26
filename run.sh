@@ -14,6 +14,7 @@ if [ "${xtermInstalled}" = "y" ]; then
         rm client
         cp build/client .
         cp build/server .
+        chmod 644 *.png
         xterm -e "./client; /bin/bash" & xterm -e "./server; /bin/bash"
     else
         echo "Build directory does not exist. Please create it and build the project."

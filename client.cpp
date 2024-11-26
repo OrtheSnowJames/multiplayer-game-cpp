@@ -247,6 +247,7 @@ int client_main() {
     int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
     int fps = getEnvVar<int>("FPS", 60);
     int port = getEnvVar<int>("PORT", 5767);
+    int preferredLatency = getEnvVar<int>("PREFERRED_LATENCY", 150);
     std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
     std::cout << "Trying to connect to " << ip << " on port " << port << std::endl;
     std::string LocalName = getEnvVar<std::string>("NAME", "Player");
@@ -271,6 +272,11 @@ int client_main() {
         }
         
         Texture2D playerTexture = LoadTexture(playerImgPath.string().c_str());
+        if (playerTexture.id == 0) {
+            std::string error = "Failed to load texture at: " + playerImgPath.string();
+            logToFile(error, ERROR);
+            std::cout << error << std::endl;
+        }
         Texture2D room1BgT;
         Image room1Bg;
         try {
@@ -301,7 +307,9 @@ int client_main() {
         }
         Texture2D player1 = LoadTextureFromImage(croppedImage1);
         if (player1.id == 0) {
-            throw std::runtime_error("Failed to load player 1 texture");
+            std::string error = "Failed to load texture at: " + playerImgPath.string();
+            logToFile(error, ERROR);
+            std::cout << error << std::endl;
         }
 
         // crop and load east (top right)
@@ -311,7 +319,9 @@ int client_main() {
         }
         Texture2D player2 = LoadTextureFromImage(croppedImage2);
         if (player2.id == 0) {
-            throw std::runtime_error("Failed to load player 2 texture");
+            std::string error = "Failed to load texture at: " + playerImgPath.string();
+            logToFile(error, ERROR);
+            std::cout << error << std::endl;
         }
 
         // crop and load south (bottom left)
@@ -321,7 +331,9 @@ int client_main() {
         }
         Texture2D player3 = LoadTextureFromImage(croppedImage3);
         if (player3.id == 0) {
-            throw std::runtime_error("Failed to load player 3 texture");
+            std::string error = "Failed to load texture at: " + playerImgPath.string();
+            logToFile(error, ERROR);
+            std::cout << error << std::endl;
         }
 
         // crop and load west (top left)
@@ -331,7 +343,9 @@ int client_main() {
         }
         Texture2D player4 = LoadTextureFromImage(croppedImage4);
         if (player4.id == 0) {
-            throw std::runtime_error("Failed to load player 4 texture");
+            std::string error = "Failed to load texture at: " + playerImgPath.string();
+            logToFile(error, ERROR);
+            std::cout << error << std::endl;
         }
 
         std::map<std::string, Texture2D> spriteSheet;
@@ -343,6 +357,9 @@ int client_main() {
         UnloadImage(croppedImage1);
 
         json localPlayer;
+        if (preferredLatency < 68 || preferredLatency > 1000) {
+            preferredLatency = 150;
+        }
         json previousChecklist = checklist; // Store the previous checklist
         std::map<std::string, bool> keys = DetectKeyPress();
         bool gameRunning = true;
@@ -391,7 +408,7 @@ int client_main() {
             
             // Timer for sending updates
             auto lastSendTime = std::chrono::steady_clock::now();
-            const std::chrono::milliseconds sendInterval(301); // 301ms interval; average human reaction time is 250ms but we want to save on aws container costs
+            const std::chrono::milliseconds sendInterval(preferredLatency); // 255ms default interval; average human reaction time is 250ms but we want to save on aws container costs
 
             // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
