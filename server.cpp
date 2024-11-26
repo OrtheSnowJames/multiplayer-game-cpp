@@ -14,9 +14,11 @@
 #include <atomic>
 #include <boost/asio/signal_set.hpp>
 #include <chrono>
+#include <filesystem>
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
+namespace fs = std::filesystem;
 
 void setupSignalHandlers(boost::asio::io_context& io_context) {
     boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
@@ -365,7 +367,13 @@ int main() {
     int port = getEnvVar<int>("PORT", 5767);
     bool cli = getEnvVar<bool>("CLI", false);
     bool gameRunning = true;
+    fs::path root = fs::current_path();
+    fs::path assets = "assets"; // Define the assets path
+    fs::path imgPath = root / assets;
+    fs::path bg1ImgPath = imgPath / "room1Bg.png";
+    
 
+    Texture2D bg1Img; // Declare bg1Img as Texture2D
     if (!cli) {
         InitWindow(screenWidth, screenHeight, "Server");
         SetTargetFPS(fps);
@@ -388,8 +396,16 @@ int main() {
                 // ... rest of input handling ...
             }
         });
-        Texture2D bg1Img = LoadTexture("/room1Bg.jpeg");
-        Image bg1 = LoadImageFromTexture(bg1Img);
+            if (fs::exists(bg1ImgPath)) {
+        bg1Img = LoadTexture(bg1ImgPath.string().c_str());
+        if (bg1Img.id == 0) {
+            std::cerr << "Failed to load background texture" << std::endl;
+            logToFile("Failed to load background texture", ERROR);
+        }
+        } else {
+            std::cerr << "Background image not found at: " << bg1ImgPath << std::endl;
+            logToFile("Background image not found", ERROR);
+        }
         std::string currentRoom = "room1";
         while (!WindowShouldClose()) {
             BeginDrawing();
@@ -407,7 +423,7 @@ int main() {
                 }
             } else if (currentWindow == "2D Viewport Of Game") {
                 if (currentRoom == "room1") {
-
+                    if (bg1Img.id != 0) DrawTexture(bg1Img, 0, 0, WHITE);
                     for (auto& p : game["room1"]["players"]) {
                         DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, BLACK);
                         DrawRectangle(p["x"].get<int>(), p["y"].get<int>(), 20, 20, RED);

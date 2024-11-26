@@ -140,3 +140,10 @@ Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
 Server started on 10.0.0.103:5767
 2024-11-26 13:38:13 [WARNING] Failed to load background texture at: /home/james/Documents/GitHub/multiplayer-game-cpp/assets/room1Bg.png
 2024-11-26 13:38:13 [WARNING] Failed to load background texture, continuing without background
+2024-11-26 15:47:15 [WARNING] Failed to load background texture at: /home/james/Documents/GitHub/multiplayer-game-cpp/assets/room1Bg.png
+2024-11-26 15:47:15 [WARNING] Failed to load background texture, continuing without background
+2024-11-26 15:47:15 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
+[ERROR] Tue Nov 26 15:47:15 2024
+Failed to load background texture
+[INFO] Tue Nov 26 15:47:15 2024
+Server started on 10.0.0.103:5767
