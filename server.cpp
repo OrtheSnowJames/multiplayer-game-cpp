@@ -32,12 +32,11 @@ std::vector<std::shared_ptr<tcp::socket>> connected_sockets;
 json game = {
     {"room1", {
         {"players", {}},
-        {"objects", {}},
-        {"enemies", {}}
-    }},
-    {"room2", {
-        {"players", {}},
-        {"objects", {}},
+        {"objects", json::array({
+            {{"x", 123}, {"y", 144}, {"width", 228}, {"height", 60}},
+            {{"x", 350}, {"y", 159}, {"width", 177}, {"height", 74}},
+            {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 147}}
+        })},
         {"enemies", {}}
     }}
 };
@@ -104,6 +103,8 @@ json createUser(const std::string& name, int id) {
         {"y", rd() % 300},
         {"speed", 5},
         {"score", 0},
+        {"width", 20},
+        {"height", 20},
         {"inventory", {{"shields", 0}, {"bananas", 0}}},
         {"socket", id},
         {"spriteState", 0}, // Ensure spriteState is an int
@@ -473,11 +474,12 @@ int main() {
                 } else if (input == "kick") {
                     bool waitForKick = true;
                     std::cout << "Enter id to kick:";
+                    // Fix: Use get<int> for socket IDs
                     for (auto& p : game["room1"]["players"]) {
-                        std::cout << p["socket"].get<std::string>().c_str() << p["name"].get<std::string>().c_str() << std::endl;
+                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
                     }
                     for (auto& p : game["room2"]["players"]) {
-                        std::cout << p["socket"].get<std::string>().c_str() << p["name"].get<std::string>().c_str() << std::endl;
+                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
                     }
                     std::thread kickThread([&waitForKick, &gameRunning] {
                         std::string input;
@@ -487,17 +489,24 @@ int main() {
                                 gameRunning = false;
                                 io_context.stop();
                             } else if (!input.empty()) {
-                                for (auto& p : game["room1"]["players"]) {
-                                    if (p["socket"].get<std::string>() == input) {
-                                        p["quitGame"] = true;
-                                        waitForKick = false;
+                                try {
+                                    int kickId = std::stoi(input);
+                                    for (auto& room : game.items()) {  // Iterate through all rooms
+                                        if (room.value().contains("players")) {
+                                            auto& players = room.value()["players"];
+                                            players.erase(
+                                                std::remove_if(players.begin(), players.end(),
+                                                    [kickId](const json& p) {
+                                                        return p["socket"].get<int>() == kickId;
+                                                    }
+                                                ),
+                                                players.end()
+                                            );
+                                        }
                                     }
-                                }
-                                for (auto& p : game["room2"]["players"]) {
-                                    if (p["socket"].get<std::string>() == input) {
-                                        p["quitGame"] = true;
-                                        waitForKick = false;
-                                    }
+                                    waitForKick = false;
+                                } catch (const std::exception& e) {
+                                    std::cout << "Invalid ID format" << std::endl;
                                 }
                             }
                         }

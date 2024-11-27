@@ -61,6 +61,58 @@ bool checkCollision(const json& object1, const json& object2) {
 
     return !(left1 > right2 || right1 < left2 || top1 > bottom2 || bottom1 < top2);
 }
+bool checkWallCollision(const json& object1, const json& object2, int& wall) {
+    // Ensure all necessary properties are present
+    if (!object1.contains("x") || !object1.contains("y") || 
+        !object2.contains("x") || !object2.contains("y") ||
+        !object1.contains("width") || !object1.contains("height") ||
+        !object2.contains("width") || !object2.contains("height")) {
+        return false;
+    }
+
+    // Get boundaries of object1
+    int left1 = object1["x"].get<int>();
+    int right1 = left1 + object1["width"].get<int>();
+    int top1 = object1["y"].get<int>();
+    int bottom1 = top1 + object1["height"].get<int>();
+
+    // Get boundaries of object2 (the wall)
+    int left2 = object2["x"].get<int>();
+    int right2 = left2 + object2["width"].get<int>();
+    int top2 = object2["y"].get<int>();
+    int bottom2 = top2 + object2["height"].get<int>();
+
+    // Check for overlap
+    if (right1 <= left2 || left1 >= right2 || bottom1 <= top2 || top1 >= bottom2) {
+        return false; // No collision
+    }
+
+    // Determine the side of the wall collided
+    int overlapLeft = right1 - left2;  // Distance into the wall from the left
+    int overlapRight = right2 - left1; // Distance into the wall from the right
+    int overlapTop = bottom1 - top2;   // Distance into the wall from the top
+    int overlapBottom = bottom2 - top1; // Distance into the wall from the bottom
+
+    // Find the smallest overlap to determine the wall
+    int minOverlap = std::min({overlapLeft, overlapRight, overlapTop, overlapBottom});
+
+    if (minOverlap == overlapLeft) {
+        wall = 2; // Collided with left side of object2
+    } else if (minOverlap == overlapRight) {
+        wall = 4; // Collided with right side of object2
+    } else if (minOverlap == overlapTop) {
+        wall = 1; // Collided with top side of object2
+    } else if (minOverlap == overlapBottom) {
+        wall = 3; // Collided with bottom side of object2
+    }
+    else {
+        wall = 0;
+        return false; // No collision
+    }
+
+    return true; // Collision detected
+}
+
 
 // Modify Button struct
 struct Button {
@@ -178,96 +230,147 @@ json test = {
     }}
 };
 
+struct Position {
+    float x;
+    float y;
+    Position(float x_ = 0, float y_ = 0) : x(x_), y(y_) {}
+};
 
-
-void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, boost::asio::streambuf& buffer, json& localPlayer, bool& initGameFully, bool& gameRunning, tcp::socket& socket, bool& localPlayerSet) {
-    if (!error) {
-        std::istream input_stream(&buffer);
-        std::string message;
-        std::getline(input_stream, message);
-        
-        std::cout << "Received message: " << message << std::endl;
-        std::cout << "LocalPlayerSet: " << localPlayerSet << std::endl;
-        std::cout << "InitGameFully: " << initGameFully << std::endl;
-
-        try {
-            std::cout << "Client received: " << message << std::endl;
-            json messageJson = json::parse(message);
+struct PlayerState {
+    Position current;
+    Position target;
+    float interpolation = 0;
+    int spriteState = 0;
+    std::string name;
+    int socketId;
     
-            if (messageJson.contains("local") && messageJson["local"].get<bool>()) {
-                // Ensure spriteState is treated as an int
-                try {
-                    if (messageJson.contains("spriteState")) {
-                        messageJson["spriteState"] = getSafeSpriteSate(messageJson, "spriteState");
-                        checklist["x"] = messageJson["x"];
-                        checklist["y"] = messageJson["y"];
-                        //construct room to add to
-                        std::string roomToAddTo = "room" + std::to_string(messageJson["room"].get<int>());
-                        game[roomToAddTo]["players"].push_back(messageJson);
-                    }
-                } catch(const std::exception& e) {
-                    std::cerr << "ERROR AT SPRITESTATE IN HANDLE READ: " << e.what() << std::endl;
-                    logToFile("ERROR AT SPRITESTATE: " + std::string(e.what()), ERROR);
-                }
-
-                localPlayer = messageJson;
-                localPlayerSet = true;
-                std::cout << "Local player set: " << localPlayer.dump() << std::endl;
-                
-                // Request full game state only if not already initialized
-                if (!initGameFully) {
-                    json gameRequest = {{"requestGame", true}};
-                    boost::asio::write(socket, boost::asio::buffer(gameRequest.dump() + "\n"));
-                }
-            }
+    void update(float dt) {
+        if (interpolation < 1.0f) {
+            interpolation += dt * 10.0f; // Adjust this multiplier to control smoothing speed
+            if (interpolation > 1.0f) interpolation = 1.0f;
             
-            if (messageJson.contains("getGame")) {
-                auto& players = messageJson["getGame"]["room1"]["players"];
-                for (auto& player : players) {
-                    if (player.contains("spriteState")) {
-                        if (!player["spriteState"].is_number()) {
-                            player["spriteState"] = 0; // Default value if not a number
-                        }
-                    } else {
-                        player["spriteState"] = 0; // Default value if not present
-                    }
-                }
+            current.x = current.x + (target.x - current.x) * interpolation;
+            current.y = current.y + (target.y - current.y) * interpolation;
+        }
+    }
+};
+
+std::map<int, PlayerState> playerStates;
+
+void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, 
+                boost::asio::streambuf& buffer, json& localPlayer, bool& initGameFully, 
+                bool& gameRunning, tcp::socket& socket, bool& localPlayerSet) {
+    if (!error) {
+        static std::string messageBuffer;
+        std::string message;
+        {
+            std::istream input_stream(&buffer);
+            std::string chunk;
+            while (std::getline(input_stream, chunk)) {  // Read all available lines
+                messageBuffer += chunk;
                 
-                game = messageJson["getGame"];
-                initGameFully = true;
-                std::cout << "Game state updated" << std::endl;
-            }
+                // Try to find a complete JSON message
+                size_t openBrace = messageBuffer.find('{');
+                size_t closeBrace = messageBuffer.find_last_of('}');
+                
+                if (openBrace != std::string::npos && closeBrace != std::string::npos && openBrace < closeBrace) {
+                    try {
+                        message = messageBuffer.substr(openBrace, closeBrace - openBrace + 1);
+                        json messageJson = json::parse(message); 
+                        messageBuffer.erase(0, closeBrace + 1); // Remove processed message
+                        
+                        // Process valid JSON message
+                        messageJson = json::parse(message);
+                        std::cout << "Client received: " << message << std::endl;
 
-            if (messageJson.contains("updatePosition")) {
-                int socketId = messageJson["updatePosition"]["socket"].get<int>();
-                int newX = messageJson["updatePosition"].value("x", -1);
-                int newY = messageJson["updatePosition"].value("y", -1);
-                int spriteStateP = messageJson["updatePosition"].value("spriteState", 0);
-                for (auto& room : game.items()) {
-                    for (auto& player : room.value()["players"]) {
-                        if (player["socket"].get<int>() == socketId) {
-                            if (newX != -1) player["x"] = newX;
-                            if (newY != -1) player["y"] = newY;
-                            player["spriteState"] = spriteStateP;
-                            break;
+                        if (messageJson.contains("local") && messageJson["local"].get<bool>()) {
+                            try {
+                                messageJson["spriteState"] = messageJson.value("spriteState", 1);
+                                messageJson["x"] = messageJson.value("x", 0);
+                                messageJson["y"] = messageJson.value("y", 0);
+                                messageJson["room"] = messageJson.value("room", 1);
+
+                                checklist["x"] = messageJson["x"].get<int>();
+                                checklist["y"] = messageJson["y"].get<int>();
+                                
+                                std::string roomToAddTo = "room" + std::to_string(messageJson["room"].get<int>());
+                                if (!game.contains(roomToAddTo)) {
+                                    game[roomToAddTo] = {{"players", json::array()}};
+                                }
+                                game[roomToAddTo]["players"].push_back(messageJson);
+
+                                localPlayer = messageJson;
+                                localPlayerSet = true;
+                                std::cout << "Local player set: " << localPlayer.dump() << std::endl;
+
+                                if (!initGameFully) {
+                                    json gameRequest = {{"requestGame", true}};
+                                    boost::asio::write(socket, boost::asio::buffer(gameRequest.dump() + "\n"));
+                                }
+                            } catch(const std::exception& e) {
+                                std::cerr << "Error processing local player: " << e.what() << std::endl;
+                                logToFile("Local player processing error: " + std::string(e.what()), ERROR);
+                            }
                         }
+
+                        if (messageJson.contains("getGame")) {
+                            game = messageJson["getGame"];
+                            initGameFully = true;
+                            std::cout << "Game state updated successfully" << std::endl;
+                            for (auto& room : game.items()) {
+                                for (auto& player : room.value()["players"]) {
+                                    int socketId = player["socket"].get<int>();
+                                    if (playerStates.find(socketId) == playerStates.end()) {
+                                        playerStates[socketId] = PlayerState();
+                                    }
+                                    playerStates[socketId].target = Position(
+                                        player["x"].get<float>(),
+                                        player["y"].get<float>()
+                                    );
+                                    playerStates[socketId].current = playerStates[socketId].target;
+                                    playerStates[socketId].name = player["name"].get<std::string>();
+                                    playerStates[socketId].socketId = socketId;
+                                    playerStates[socketId].spriteState = player["spriteState"].get<int>();
+                                }
+                            }
+                        }
+
+                        if (messageJson.contains("updatePosition")) {
+                            auto& updateData = messageJson["updatePosition"];
+                            int socketId = updateData["socket"].get<int>();
+                            
+                            if (playerStates.find(socketId) == playerStates.end()) {
+                                playerStates[socketId] = PlayerState();
+                                playerStates[socketId].socketId = socketId;
+                            }
+                            
+                            if (updateData.contains("x") && updateData.contains("y")) {
+                                playerStates[socketId].target = Position(
+                                    updateData["x"].get<float>(),
+                                    updateData["y"].get<float>()
+                                );
+                                playerStates[socketId].interpolation = 0;
+                            }
+                            
+                            if (updateData.contains("spriteState")) {
+                                playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+                            }
+                        }
+                        break;  // Exit loop after processing valid message
+                    } catch (const json::parse_error&) {
+                        continue; // Keep reading if JSON is invalid
                     }
                 }
             }
-
-            // Clear the buffer before starting a new read
-            buffer.consume(buffer.size());
-
-            // Continue reading
-            boost::asio::async_read_until(socket, buffer, "\n",
-                [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                    handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
-                });
         }
-        catch (const json::exception& e) {
-            std::cerr << "JSON parsing error: " << e.what() << "\nMessage was: " << message << std::endl;
-            logToFile("JSON parsing error: " + std::string(e.what()) + "\nMessage was: " + message);
-        }
+
+        // Re-arm the read
+        buffer.consume(buffer.size());
+        boost::asio::async_read_until(socket, buffer, "\n",
+            [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, 
+                          gameRunning, socket, localPlayerSet);
+            });
     }
 }
 
@@ -521,7 +624,9 @@ int client_main() {
                 [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
+            json canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};            
             // Main Game Loop
+            json localPlayerInterpolatedPos = {};
             while (!WindowShouldClose() && gameRunning) {
                 // Run io_context to process async operations
                 io_context.poll();
@@ -551,9 +656,40 @@ int client_main() {
                     EndDrawing();
                     continue;  // Skip rest of loop until initialized
                 }
-                
+                localPlayerInterpolatedPos = {
+                    {"x", playerStates[socket.native_handle()].current.x},
+                    {"y", playerStates[socket.native_handle()].current.y},
+                    {"width", 20},
+                    {"height", 20}
+                };
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
+                // Get local player correctly
+                json localPlayer;
+                std::string localRoomName;
+                    // Add this before collision checks:
+                    for (auto& room : game.items()) {
+                        if (room.value().contains("players")) {
+                            canMove["w"] = true;
+                            canMove["a"] = true;
+                            canMove["s"] = true;
+                            canMove["d"] = true;
+
+                            for (const auto& object : game[localRoomName]["objects"]) {
+                                int wall = 0;
+                                if (checkWallCollision(localPlayerInterpolatedPos, object, wall)) {
+                                    switch(wall) {
+                                        case 1: canMove["w"] = false;  // Top
+                                        case 2: canMove["d"] = false;  // Right 
+                                        case 3: canMove["s"] = false;  // Bottom
+                                        case 4: canMove["a"] = false;  // Left
+                                        case 0: canMove["w"] = true; canMove["a"] = true; canMove["s"] = true; canMove["d"] = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    //Point in which player state goes back to if not moving
                     int backPoint = 3;
                     Vector2 mousePoint = GetMousePosition();
 
@@ -574,7 +710,7 @@ int client_main() {
                         send = true;
                     }
 
-                    if (keys["w"] || IsButtonPressed(buttonW, mousePoint)) {
+                    if ((keys["w"] || IsButtonPressed(buttonW, mousePoint)) && canMove["w"] == true) {
                         checklist["goingup"] = true;
                         checklist["y"] = prevY - moveSpeed;
                         checklist["spriteState"] = 1; // North facing
@@ -583,7 +719,7 @@ int client_main() {
                         checklist["goingup"] = false;
                     }
 
-                    if (keys["s"] || IsButtonPressed(buttonS, mousePoint)) {
+                    if ((keys["s"] || IsButtonPressed(buttonS, mousePoint)) && canMove["s"] == true) {
                         checklist["goingdown"] = true; 
                         checklist["y"] = prevY + moveSpeed;
                         checklist["spriteState"] = 3; // South facing
@@ -592,7 +728,7 @@ int client_main() {
                         checklist["goingdown"] = false;
                     }
 
-                    if (keys["a"] || IsButtonPressed(buttonA, mousePoint)) {
+                    if ((keys["a"] || IsButtonPressed(buttonA, mousePoint)) && canMove["a"] == true) {
                         checklist["goingleft"] = true;
                         checklist["x"] = prevX - moveSpeed;
                         checklist["spriteState"] = 4; // West facing
@@ -601,7 +737,7 @@ int client_main() {
                         checklist["goingleft"] = false;
                     }
 
-                    if (keys["d"] || IsButtonPressed(buttonD, mousePoint)) {
+                    if ((keys["d"] || IsButtonPressed(buttonD, mousePoint)) && canMove["d"] == true) {
                         checklist["goingright"] = true;
                         checklist["x"] = prevX + moveSpeed;
                         checklist["spriteState"] = 2; // East facing
@@ -636,27 +772,29 @@ int client_main() {
                         DrawTexture(room1BgT, 0, 0, WHITE);
                     }
 
-                    // Draw all players
-                    for (auto& room : game.items()) {
-                        for (auto& player : room.value()["players"]) {
-                            int x = player["x"].get<int>();
-                            int y = player["y"].get<int>();
-                            
-                            // Draw player sprite based on spriteState
-                            int spriteState = player["spriteState"].get<int>();
-                            std::string spriteKey = std::to_string(spriteState);
-                            
-                            if (spriteSheet.find(spriteKey) != spriteSheet.end()) {
-                                DrawTexture(spriteSheet[spriteKey], x, y, WHITE);
-                            } else {
-                                // Fallback rectangle if sprite not found
-                                DrawRectangle(x, y, 32, 32, RED);
-                            }
-                            
-                            // Draw player name
-                            DrawText(player["name"].get<std::string>().c_str(), 
-                                    x - 10, y - 20, 20, BLACK);
+                    float deltaTime = GetFrameTime();
+                    
+                    // Update all player states
+                    for (auto& [socketId, state] : playerStates) {
+                        state.update(deltaTime);
+                        
+                        // Draw player sprite based on interpolated position
+                        if (spriteSheet.find(std::to_string(state.spriteState)) != spriteSheet.end()) {
+                            DrawTexture(
+                                spriteSheet[std::to_string(state.spriteState)], 
+                                state.current.x, 
+                                state.current.y, 
+                                WHITE
+                            );
+                        } else {
+                            DrawRectangle(state.current.x, state.current.y, 32, 32, RED);
                         }
+                        
+                        // Draw player name
+                        DrawText(state.name.c_str(), 
+                                state.current.x - 10, 
+                                state.current.y - 20, 
+                                20, BLACK);
                     }
 
                     EndDrawing();

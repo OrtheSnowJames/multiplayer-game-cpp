@@ -163,3 +163,59 @@ Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
 Server started on 10.0.0.103:5767
 [ERROR] Wed Nov 27 09:27:26 2024
 Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Wed Nov 27 10:46:28 2024
+Server started on 10.0.0.103:5767
+[ERROR] Wed Nov 27 10:47:17 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Wed Nov 27 10:47:34 2024
+Server started on 10.0.0.103:5767
+[ERROR] Wed Nov 27 10:47:35 2024
+Error in handleMessage: [json.exception.type_error.305] cannot use operator[] with a string argument with array
+[ERROR] Wed Nov 27 10:47:54 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Wed Nov 27 10:48:54 2024
+Server started on 10.0.0.103:5767
+[ERROR] Wed Nov 27 10:49:11 2024
+Error in handleMessage: [json.exception.type_error.305] cannot use operator[] with a string argument with array
+[ERROR] Wed Nov 27 10:50:31 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[ERROR] Wed Nov 27 10:50:31 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[INFO] Wed Nov 27 10:51:49 2024
+Server started on 10.0.0.103:5767
+[ERROR] Wed Nov 27 10:51:49 2024
+Error in handleMessage: [json.exception.type_error.305] cannot use operator[] with a string argument with array
+[INFO] Wed Nov 27 10:52:24 2024
+Server started on 10.0.0.103:5767
+2024-11-27 10:52:24 [ERROR] JSON parsing error: [json.exception.parse_error.101] parse error at line 1, column 2: syntax error while parsing value - invalid literal; last read: 'te'
+Message was: te":0,"width":20,"x":350,"y":146}]}}}
+[INFO] Wed Nov 27 10:52:53 2024
+Server started on 10.0.0.103:5767
+2024-11-27 10:52:59 [ERROR] JSON parsing error: [json.exception.parse_error.101] parse error at line 1, column 2: syntax error while parsing value - invalid literal; last read: 'te'
+Message was: te":0,"width":20,"x":265,"y":292}]}}}
+[INFO] Wed Nov 27 10:57:36 2024
+Server started on 10.0.0.103:5767
+2024-11-27 10:58:47 [WARNING] Invalid message received
+2024-11-27 10:58:47 [ERROR] ERROR: [json.exception.type_error.302] type must be string, but is object
+[INFO] Wed Nov 27 11:01:41 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:02:29 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:06:56 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:12:36 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:13:33 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:21:33 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:21:57 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:27:41 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 11:29:01 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 12:25:49 2024
+Server started on 10.0.0.103:5767
+[INFO] Wed Nov 27 12:43:19 2024
+Server started on 10.0.0.103:5767
