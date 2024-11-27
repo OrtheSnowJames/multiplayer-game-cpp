@@ -223,18 +223,20 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                         newY = messageJson["y"].get<int>();
                         changed = true;
                     }
-                    if (messageJson.contains("goingup") || messageJson.contains("goingdown") || messageJson.contains("goingleft") || messageJson.contains("goingright")) {
+                    if (messageJson.contains("goingup") || messageJson.contains("goingdown") || 
+                        messageJson.contains("goingleft") || messageJson.contains("goingright") || 
+                        (messageJson.contains("spriteState") && messageJson["spriteState"].get<int>() == 5)) {
+                        
                         int newState;
-                        if (messageJson["goingup"].get<bool>()) {
+                        if (messageJson["spriteState"].get<int>() == 5) {
+                            newState = 5;  // Crouch state
+                        } else if (messageJson["goingup"].get<bool>()) {
                             newState = 1;
-                        }
-                        if (messageJson["goingdown"].get<bool>()) {
+                        } else if (messageJson["goingdown"].get<bool>()) {
                             newState = 3;
-                        }
-                        if (messageJson["goingleft"].get<bool>()) {
+                        } else if (messageJson["goingleft"].get<bool>()) {
                             newState = 4;
-                        }
-                        if (messageJson["goingright"].get<bool>()) {
+                        } else if (messageJson["goingright"].get<bool>()) {
                             newState = 2;
                         }
                         p["spriteState"] = messageJson["spriteState"].get<int>();

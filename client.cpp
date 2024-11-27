@@ -136,7 +136,7 @@ std::map<std::string, bool> DetectKeyPress() {
     keyStates["s"] = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
     keyStates["d"] = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
     keyStates["q"] = IsKeyDown(KEY_Q);
-
+    keyStates["shift"] = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
     return keyStates;
 }
 
@@ -319,9 +319,11 @@ int client_main() {
     try {
         // Debug paths
         fs::path playerImgPath = root / "assets" / "player.png";
+        fs::path compressedPlayerImgPath = root / "assets" / "compressedPlayer.png";
         fs::path bg1ImgPath = root / "assets" / "room1Bg.png";
         
         debugImagePath(playerImgPath, "Player Image");
+        debugImagePath(compressedPlayerImgPath, "Compressed Player Image");
         debugImagePath(bg1ImgPath, "Background Image");
 
         // Check if files exist
@@ -329,6 +331,12 @@ int client_main() {
             std::string error = "Player image not found at: " + playerImgPath.string();
             logToFile(error, ERROR);
             throw std::runtime_error(error);
+        }
+
+        if (!fs::exists(compressedPlayerImgPath)) {
+            std::string error = "Compressed player image not found at: " + compressedPlayerImgPath.string();
+            logToFile(error, WARNING);
+            std::cout << error << std::endl;
         }
 
         if (!fs::exists(bg1ImgPath)) {
@@ -431,6 +439,15 @@ int client_main() {
             logToFile(error, ERROR);
             std::cout << error << std::endl;
         }
+
+        // Load crouch texture
+        Texture2D player5 = LoadTexture(compressedPlayerImgPath.string().c_str());
+        if (player5.id == 0) {
+            std::string error = "Failed to load compressed texture at: " + compressedPlayerImgPath.string();
+            logToFile(error, WARNING);
+            std::cout << error << std::endl;
+        }
+
         debugTexture("Player 1", player1, playerImgPath);
         debugTexture("Player 2", player2, playerImgPath);
         debugTexture("Player 3", player3, playerImgPath);
@@ -441,6 +458,7 @@ int client_main() {
         spriteSheet["2"] = player2; spriteSheet["D"] = player2;
         spriteSheet["3"] = player3; spriteSheet["S"] = player3;
         spriteSheet["4"] = player4; spriteSheet["A"] = player4;
+        spriteSheet["5"] = player5;
         UnloadImage(playerImage);
         UnloadImage(croppedImage1);
 
@@ -536,6 +554,7 @@ int client_main() {
                 
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
+                    int backPoint = 3;
                     Vector2 mousePoint = GetMousePosition();
 
                     keys = DetectKeyPress();
@@ -545,6 +564,15 @@ int client_main() {
                     // Store previous position
                     int prevX = checklist["x"].get<int>();
                     int prevY = checklist["y"].get<int>();
+
+                    // Handle crouch state
+                    if (keys["shift"]) {
+                        checklist["spriteState"] = 5; // Crouch state
+                        send = true;
+                    } else {
+                        checklist["spriteState"] = 3;
+                        send = true;
+                    }
 
                     if (keys["w"] || IsButtonPressed(buttonW, mousePoint)) {
                         checklist["goingup"] = true;
@@ -588,7 +616,7 @@ int client_main() {
                     
                     checklist["x"] = std::max(0, std::min(screenWidth - 32, checklist["x"].get<int>()));
                     checklist["y"] = std::max(0, std::min(screenHeight - 32, checklist["y"].get<int>()));
-
+                    
                     // Only send if checklist has changed and interval has passed
                     auto now = std::chrono::steady_clock::now();
                     if (send && (now - lastSendTime) >= sendInterval && checklist != previousChecklist) {
