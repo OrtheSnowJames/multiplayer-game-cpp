@@ -95,30 +95,57 @@ void reportError(const std::string& message){
 }
 std::mutex game_mutex; // Add a separate mutex for game
 
+bool checkCollision(const json& object1, const json& object2) {
+    if (!object1.contains("x") || !object1.contains("y") || 
+        !object2.contains("x") || !object2.contains("y") ||
+        !object1.contains("width") || !object1.contains("height") ||
+        !object2.contains("width") || !object2.contains("height")) {
+        return false;
+    }
+
+    int left1 = object1["x"].get<int>();
+    int right1 = left1 + object1["width"].get<int>();
+    int top1 = object1["y"].get<int>();
+    int bottom1 = top1 + object1["height"].get<int>();
+
+    int left2 = object2["x"].get<int>();
+    int right2 = left2 + object2["width"].get<int>();
+    int top2 = object2["y"].get<int>();
+    int bottom2 = top2 + object2["height"].get<int>();
+
+    return !(left1 > right2 || right1 < left2 || top1 > bottom2 || bottom1 < top2);
+}
+
 json createUser(const std::string& name, int id) {
     std::random_device rd;
-    return {
+    json newPlayer = {
         {"name", name},
         {"x", rd() % 600},
         {"y", rd() % 300},
         {"speed", 5},
         {"score", 0},
-        {"width", 20},
-        {"height", 20},
+        {"width", 64}, 
+        {"height", 64},
         {"inventory", {{"shields", 0}, {"bananas", 0}}},
         {"socket", id},
-        {"spriteState", 0}, // Ensure spriteState is an int
+        {"spriteState", 1},
         {"skin", 1},
         {"local", false},
         {"room", 1}
     };
+    for (auto& o : game["room1"]["objects"]) {
+        if (checkCollision(newPlayer, o)) {
+            newPlayer = createUser(name, id);  // recreate player if colliding
+        }
+    }
+    return newPlayer;
 }
 
 // Modify eraseUser function
 void eraseUser(int id) {
     std::lock_guard<std::mutex> lock(game_mutex);
     try {
-        // First remove from connected_sockets safely
+        // First remove from connected_sockets SAFELY AHEM AHEM
         {
             std::lock_guard<std::mutex> socket_lock(socket_mutex);
             auto it = std::remove_if(connected_sockets.begin(), connected_sockets.end(),
@@ -205,43 +232,25 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
             return;
         }
 
-        // Position updates - always use updatePosition
         if (messageJson.contains("x") || messageJson.contains("y") || messageJson.contains("spriteState")) {
             std::string roomName = lookForRoom(socket);
             bool changed = false;
-            int newX = -1, newY = -1;
-            int spriteState = 0;
+            int newX = messageJson.value("x", -1);
+            int newY = messageJson.value("y", -1);
+            int spriteState = messageJson.value("spriteState", 1);  // Get sprite state with default
             
             for (auto& p : game[roomName]["players"]) {
                 if (p["socket"].get<int>() == socket.native_handle()) {
+                    if (messageJson.contains("spriteState")) {
+                        p["spriteState"] = spriteState;
+                        changed = true;
+                    }
                     if (messageJson.contains("x")) {
-                        p["x"] = messageJson["x"].get<int>();
-                        newX = messageJson["x"].get<int>();
+                        p["x"] = newX;
                         changed = true;
                     }
                     if (messageJson.contains("y")) {
-                        p["y"] = messageJson["y"].get<int>();
-                        newY = messageJson["y"].get<int>();
-                        changed = true;
-                    }
-                    if (messageJson.contains("goingup") || messageJson.contains("goingdown") || 
-                        messageJson.contains("goingleft") || messageJson.contains("goingright") || 
-                        (messageJson.contains("spriteState") && messageJson["spriteState"].get<int>() == 5)) {
-                        
-                        int newState;
-                        if (messageJson["spriteState"].get<int>() == 5) {
-                            newState = 5;  // Crouch state
-                        } else if (messageJson["goingup"].get<bool>()) {
-                            newState = 1;
-                        } else if (messageJson["goingdown"].get<bool>()) {
-                            newState = 3;
-                        } else if (messageJson["goingleft"].get<bool>()) {
-                            newState = 4;
-                        } else if (messageJson["goingright"].get<bool>()) {
-                            newState = 2;
-                        }
-                        p["spriteState"] = messageJson["spriteState"].get<int>();
-                        spriteState = messageJson["spriteState"].get<int>();
+                        p["y"] = newY;
                         changed = true;
                     }
                     break;
@@ -249,18 +258,23 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
             }
 
             if (changed) {
+                bool crouched = (spriteState == 5);
+                int widthToSet = crouched ? 48 : 32;  // Use consistent sizes
+                int heightToSet = crouched ? 48 : 32;
+                
                 json positionUpdate = {
                     {"updatePosition", {
                         {"socket", socket.native_handle()},
                         {"x", newX},
                         {"y", newY},
+                        {"width", widthToSet},
+                        {"height", heightToSet},
                         {"spriteState", spriteState}
                     }}
                 };
                 broadcastMessage(positionUpdate);
             }
         }
-
         // Only send full game state when explicitly requested
         if (messageJson.contains("requestGame") && !messageJson.contains("x") && !messageJson.contains("y")) {
             json gameUpdate = {{"getGame", game}};

@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
+#include <X11/xlib.h>
 #include "coolfunctions.hpp"
 #include "raylib.h"
 
@@ -38,7 +39,8 @@ json checklist = {
     {"x", 0},
     {"y", 0},
     {"currentGame", ""},
-    {"currentPlayer", ""}
+    {"currentPlayer", ""},
+    {"spriteState", 1}  // Add default sprite state
 };
 
 bool checkCollision(const json& object1, const json& object2) {
@@ -233,7 +235,10 @@ json test = {
 struct Position {
     float x;
     float y;
-    Position(float x_ = 0, float y_ = 0) : x(x_), y(y_) {}
+    float width;
+    float height;
+    Position(float x_ = 0, float y_ = 0, float width_ = 64, float height_ = 64)  // Always initialize with full size
+        : x(x_), y(y_), width(width_), height(height_) {}
 };
 
 struct PlayerState {
@@ -251,6 +256,8 @@ struct PlayerState {
             
             current.x = current.x + (target.x - current.x) * interpolation;
             current.y = current.y + (target.y - current.y) * interpolation;
+            current.width = current.width + (target.width - current.width) * interpolation;
+            current.height = current.height + (target.height - current.height) * interpolation;
         }
     }
 };
@@ -289,9 +296,12 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 messageJson["x"] = messageJson.value("x", 0);
                                 messageJson["y"] = messageJson.value("y", 0);
                                 messageJson["room"] = messageJson.value("room", 1);
+                                messageJson["width"] = messageJson.value("width", 32);
+                                messageJson["height"] = messageJson.value("height", 32);
 
                                 checklist["x"] = messageJson["x"].get<int>();
                                 checklist["y"] = messageJson["y"].get<int>();
+                                checklist["spriteState"] = messageJson["spriteState"].get<int>();
                                 
                                 std::string roomToAddTo = "room" + std::to_string(messageJson["room"].get<int>());
                                 if (!game.contains(roomToAddTo)) {
@@ -325,7 +335,9 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                     }
                                     playerStates[socketId].target = Position(
                                         player["x"].get<float>(),
-                                        player["y"].get<float>()
+                                        player["y"].get<float>(),
+                                        player.value("width", 32.0f),
+                                        player.value("height", 32.0f)
                                     );
                                     playerStates[socketId].current = playerStates[socketId].target;
                                     playerStates[socketId].name = player["name"].get<std::string>();
@@ -334,28 +346,380 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 }
                             }
                         }
-
                         if (messageJson.contains("updatePosition")) {
                             auto& updateData = messageJson["updatePosition"];
                             int socketId = updateData["socket"].get<int>();
-                            
+
                             if (playerStates.find(socketId) == playerStates.end()) {
                                 playerStates[socketId] = PlayerState();
                                 playerStates[socketId].socketId = socketId;
                             }
-                            
-                            if (updateData.contains("x") && updateData.contains("y")) {
-                                playerStates[socketId].target = Position(
-                                    updateData["x"].get<float>(),
-                                    updateData["y"].get<float>()
-                                );
-                                playerStates[socketId].interpolation = 0;
-                            }
-                            
+
+                            // Keep dimensions constant - only scale in rendering
+                            playerStates[socketId].target = Position(
+                                updateData["x"].get<float>(),
+                                updateData["y"].get<float>(),
+                                64.0f,  // Keep constant size
+                                64.0f   // Keep constant size
+                            );
+                            playerStates[socketId].interpolation = 0;
+
                             if (updateData.contains("spriteState")) {
                                 playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
                             }
                         }
+                        if (messageJson.contains("updatePosition")) {
+                            auto& updateData = messageJson["updatePosition"];
+                            int socketId = updateData["socket"].get<int>();
+
+                            if (playerStates.find(socketId) == playerStates.end()) {
+                                playerStates[socketId] = PlayerState();
+                                playerStates[socketId].socketId = socketId;
+                            }
+
+                            // Keep dimensions constant - only scale in rendering
+                            playerStates[socketId].target = Position(
+                                updateData["x"].get<float>(),
+                                updateData["y"].get<float>(),
+                                64.0f,  // Keep constant size
+                                64.0f   // Keep constant size
+                            );
+                            playerStates[socketId].interpolation = 0;
+
+                            if (updateData.contains("spriteState")) {
+                                playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+                            }
+                        }
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
+                        if (messageJson.contains("updatePosition")) {
+    auto& updateData = messageJson["updatePosition"];
+    int socketId = updateData["socket"].get<int>();
+    
+    if (playerStates.find(socketId) == playerStates.end()) {
+        playerStates[socketId] = PlayerState();
+        playerStates[socketId].socketId = socketId;
+    }
+    
+    // Keep dimensions constant - only scale in rendering
+    playerStates[socketId].target = Position(
+        updateData["x"].get<float>(),
+        updateData["y"].get<float>(),
+        64.0f,  // Keep constant size
+        64.0f   // Keep constant size
+    );
+    playerStates[socketId].interpolation = 0;
+    
+    if (updateData.contains("spriteState")) {
+        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+    }
+}
                         break;  // Exit loop after processing valid message
                     } catch (const json::parse_error&) {
                         continue; // Keep reading if JSON is invalid
@@ -572,6 +936,8 @@ int client_main() {
         json previousChecklist = checklist; // Store the previous checklist
         std::map<std::string, bool> keys = DetectKeyPress();
         bool gameRunning = true;
+        int moveSpeed = 5; // Adjust movement speed
+
         try {
             io_context io_context;
             tcp::socket socket(io_context);
@@ -648,7 +1014,8 @@ int client_main() {
                 Button buttonA = {{static_cast<float>(screenWidth) - 240, static_cast<float>(screenHeight) - 180, 60, 60}, "A", false};
                 Button buttonS = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 180, 60, 60}, "S", false};
                 Button buttonD = {{static_cast<float>(screenWidth) - 120, static_cast<float>(screenHeight) - 180, 60, 60}, "D", false};
-                DrawButton(buttonW);DrawButton(buttonA);DrawButton(buttonS);DrawButton(buttonD);
+                Button buttonShift = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 120, 60, 60}, "Shift", false};
+                Button buttonQuit = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 60, 60, 60}, "Quit", false};
                 // Show loading screen until fully initialized
                 if (!localPlayerSet || !initGameFully) {
                     DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
@@ -656,60 +1023,122 @@ int client_main() {
                     EndDrawing();
                     continue;  // Skip rest of loop until initialized
                 }
+                int localSocketId = localPlayer["socket"].get<int>();
                 localPlayerInterpolatedPos = {
-                    {"x", playerStates[socket.native_handle()].current.x},
-                    {"y", playerStates[socket.native_handle()].current.y},
-                    {"width", 20},
-                    {"height", 20}
+                    {"x", playerStates[localSocketId].current.x},
+                    {"y", playerStates[localSocketId].current.y},
+                    {"width", playerStates[localSocketId].current.width},
+                    {"height", playerStates[localSocketId].current.height}
                 };
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
-                // Get local player correctly
-                json localPlayer;
-                std::string localRoomName;
-                    // Add this before collision checks:
-                    for (auto& room : game.items()) {
-                        if (room.value().contains("players")) {
-                            canMove["w"] = true;
-                            canMove["a"] = true;
-                            canMove["s"] = true;
-                            canMove["d"] = true;
+                std::string localRoomName = "room1";  // Default room
 
-                            for (const auto& object : game[localRoomName]["objects"]) {
-                                int wall = 0;
-                                if (checkWallCollision(localPlayerInterpolatedPos, object, wall)) {
-                                    switch(wall) {
-                                        case 1: canMove["w"] = false;  // Top
-                                        case 2: canMove["d"] = false;  // Right 
-                                        case 3: canMove["s"] = false;  // Bottom
-                                        case 4: canMove["a"] = false;  // Left
-                                        case 0: canMove["w"] = true; canMove["a"] = true; canMove["s"] = true; canMove["d"] = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
+    for (const auto& room : game.items()) {
+        if (room.value().contains("players")) {
+            for (const auto& player : room.value()["players"]) {
+                if (player["socket"] == socket.native_handle()) {  // Use socket handle directly
+                    localRoomName = room.key();
+                    break;
+                }
+            }
+        }
+    }
+    
+                    // Modify the collision checking section:
+Vector2 mousePoint = GetMousePosition();  // Define mousePoint here for use in collision checks
+
+if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
+    // Reset movement flags
+    canMove["w"] = true;
+    canMove["a"] = true;
+    canMove["s"] = true;
+    canMove["d"] = true;
+
+    float tolerance = 1.0f;  // Reduce tolerance
+    
+    for (const auto& object : game[localRoomName]["objects"]) {
+        json predictedPos = localPlayerInterpolatedPos;
+        int wall = 0;
+        
+        // Check collisions without immediate position adjustment
+        predictedPos = localPlayerInterpolatedPos;
+        predictedPos["y"] = localPlayerInterpolatedPos["y"].get<float>() - moveSpeed;
+        if (checkWallCollision(predictedPos, object, wall)) {
+            if (wall == 1) {
+                canMove["w"] = false;
+                // Only adjust position if we're actually moving up
+                if (keys["w"] || IsButtonPressed(buttonW, mousePoint)) {
+                    checklist["y"] = object["y"].get<int>() + object["height"].get<int>();
+                }
+            }
+        }
+        
+        predictedPos = localPlayerInterpolatedPos;
+        predictedPos["y"] = localPlayerInterpolatedPos["y"].get<float>() + moveSpeed;
+        if (checkWallCollision(predictedPos, object, wall)) {
+            if (wall == 3) {
+                canMove["s"] = false;
+                if (keys["s"] || IsButtonPressed(buttonS, mousePoint)) {
+                    checklist["y"] = object["y"].get<int>() - localPlayerInterpolatedPos["height"].get<float>();
+                }
+            }
+        }
+        
+        predictedPos = localPlayerInterpolatedPos;
+        predictedPos["x"] = localPlayerInterpolatedPos["x"].get<float>() - moveSpeed;
+        if (checkWallCollision(predictedPos, object, wall)) {
+            if (wall == 4) {
+                canMove["a"] = false;
+                if (keys["a"] || IsButtonPressed(buttonA, mousePoint)) {
+                    checklist["x"] = object["x"].get<int>() + object["width"].get<int>();
+                }
+            }
+        }
+        
+        predictedPos = localPlayerInterpolatedPos;
+        predictedPos["x"] = localPlayerInterpolatedPos["x"].get<float>() + moveSpeed;
+        if (checkWallCollision(predictedPos, object, wall)) {
+            if (wall == 2) {
+                canMove["d"] = false;
+                if (keys["d"] || IsButtonPressed(buttonD, mousePoint)) {
+                    checklist["x"] = object["x"].get<int>() - localPlayerInterpolatedPos["width"].get<float>();
+                }
+            }
+        }
+    }
+}
                     //Point in which player state goes back to if not moving
                     int backPoint = 3;
-                    Vector2 mousePoint = GetMousePosition();
+                    mousePoint = GetMousePosition();
 
                     keys = DetectKeyPress();
                     bool send = false;
-                    int moveSpeed = 5; // Adjust movement speed
 
                     // Store previous position
                     int prevX = checklist["x"].get<int>();
                     int prevY = checklist["y"].get<int>();
 
-                    // Handle crouch state
-                    if (keys["shift"]) {
-                        checklist["spriteState"] = 5; // Crouch state
-                        send = true;
-                    } else {
-                        checklist["spriteState"] = 3;
+                    
+                    if (keys["shift"] || IsButtonPressed(buttonShift, mousePoint)) {
+                        if (checklist["spriteState"].get<int>() != 5) {
+                            checklist["prevState"] = checklist["spriteState"];  // Store current state
+                            checklist["spriteState"] = 5;  // Crouch state
+                            send = true;
+                        }
+                        moveSpeed = 2;  // Slower while crouched
+                    } else if (checklist["spriteState"].get<int>() == 5) {
+                        // Restore previous state or determine from current movement
+                        if (checklist.contains("prevState")) {
+                            checklist["spriteState"] = checklist["prevState"];
+                        } else {
+                            checklist["spriteState"] = 3;  // Default to standing
+                        }
+                        moveSpeed = 5;  // Normal speed
                         send = true;
                     }
 
+                    // Normal movement after crouch check
                     if ((keys["w"] || IsButtonPressed(buttonW, mousePoint)) && canMove["w"] == true) {
                         checklist["goingup"] = true;
                         checklist["y"] = prevY - moveSpeed;
@@ -746,6 +1175,10 @@ int client_main() {
                         checklist["goingright"] = false;
                     }
 
+                    if (keys["q"] || IsButtonPressed(buttonQuit, mousePoint)) {
+                        gameRunning = false;
+                    }
+
                     // Add bounds checking
                     int screenWidth = GetScreenWidth();
                     int screenHeight = GetScreenHeight();
@@ -771,25 +1204,52 @@ int client_main() {
                     if (room1BgT.id != 0) {
                         DrawTexture(room1BgT, 0, 0, WHITE);
                     }
+                    DrawButton(buttonW);DrawButton(buttonA);DrawButton(buttonS);DrawButton(buttonD); DrawButton(buttonShift); DrawButton(buttonQuit);
 
                     float deltaTime = GetFrameTime();
                     
                     // Update all player states
+                    // Update and draw all players
                     for (auto& [socketId, state] : playerStates) {
-                        state.update(deltaTime);
-                        
+                        state.update(deltaTime);  // Updates interpolation for smooth movement
+
                         // Draw player sprite based on interpolated position
                         if (spriteSheet.find(std::to_string(state.spriteState)) != spriteSheet.end()) {
-                            DrawTexture(
-                                spriteSheet[std::to_string(state.spriteState)], 
+                            Texture2D currentSprite = spriteSheet[std::to_string(state.spriteState)];
+                            Rectangle sourceRect;
+                            
+                            // Handle crouching sprite differently
+                            if (state.spriteState == 5) {
+                                sourceRect = (Rectangle){ 0, 0, 48, 47 }; // Compressed sprite dimensions
+                            } else {
+                                sourceRect = (Rectangle){ 0, 0, 64, 64 }; // Normal sprite dimensions
+                            }
+
+                            Rectangle destRect = {
                                 state.current.x, 
                                 state.current.y, 
+                                state.spriteState == 5 ? 48.0f : 64.0f,  // Scale only in rendering
+                                state.spriteState == 5 ? 47.0f : 64.0f   // Scale only in rendering
+                            };
+
+                            DrawTexturePro(
+                                currentSprite,
+                                sourceRect,    // Source rectangle from sprite sheet
+                                destRect,      // Destination rectangle with current dimensions
+                                (Vector2){ 0, 0 },
+                                0.0f,
                                 WHITE
                             );
                         } else {
-                            DrawRectangle(state.current.x, state.current.y, 32, 32, RED);
+                            DrawRectangle(
+                                state.current.x, 
+                                state.current.y, 
+                                state.current.width, 
+                                state.current.height, 
+                                RED
+                            );
                         }
-                        
+
                         // Draw player name
                         DrawText(state.name.c_str(), 
                                 state.current.x - 10, 

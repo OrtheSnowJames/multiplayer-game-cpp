@@ -6,11 +6,16 @@ project(multiplayer_game_cpp)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+#set cmake dir
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/")
+
+
 # Find required packages
 find_package(Boost REQUIRED COMPONENTS system thread filesystem regex chrono date_time)
 find_package(nlohmann_json REQUIRED)
 find_package(raylib REQUIRED)
 find_package(GTest REQUIRED)
+find_package(libX11 REQUIRED)
 
 # Add source files
 set(SERVER_SOURCES
@@ -33,6 +38,12 @@ add_executable(server ${SERVER_SOURCES})
 add_executable(client ${CLIENT_SOURCES})
 add_executable(test_client ${TEST_CLIENT_SOURCES})
 
+# Handle Emscripten-specific flags
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_GLFW=3 -s ALLOW_MEMORY_GROWTH=1 -s WASM=1")
+    set(CMAKE_EXECUTABLE_SUFFIX ".html")
+endif()
+
 # Link libraries for server
 target_link_libraries(server PRIVATE
     Boost::system
@@ -43,6 +54,7 @@ target_link_libraries(server PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
+    libX11
 )
 
 # Link libraries for client
@@ -55,6 +67,7 @@ target_link_libraries(client PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
+    libX11
 )
 
 # Link libraries for test_client

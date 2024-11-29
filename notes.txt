@@ -9,3 +9,4 @@
     "currentGame": "",
     "currentPlayer": ""
 }
+//remember when you update position update the interplotation position if ur in client.cpp
