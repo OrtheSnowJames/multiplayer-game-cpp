@@ -15,7 +15,6 @@ find_package(Boost REQUIRED COMPONENTS system thread filesystem regex chrono dat
 find_package(nlohmann_json REQUIRED)
 find_package(raylib REQUIRED)
 find_package(GTest REQUIRED)
-find_package(libX11 REQUIRED)
 
 # Add source files
 set(SERVER_SOURCES
@@ -54,7 +53,6 @@ target_link_libraries(server PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
-    libX11
 )
 
 # Link libraries for client
@@ -67,7 +65,6 @@ target_link_libraries(client PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
-    libX11
 )
 
 # Link libraries for test_client

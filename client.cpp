@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
-#include <X11/xlib.h>
 #include "coolfunctions.hpp"
 #include "raylib.h"
 
@@ -63,6 +62,7 @@ bool checkCollision(const json& object1, const json& object2) {
 
     return !(left1 > right2 || right1 < left2 || top1 > bottom2 || bottom1 < top2);
 }
+
 bool checkWallCollision(const json& object1, const json& object2, int& wall) {
     // Ensure all necessary properties are present
     if (!object1.contains("x") || !object1.contains("y") || 
@@ -107,14 +107,20 @@ bool checkWallCollision(const json& object1, const json& object2, int& wall) {
     } else if (minOverlap == overlapBottom) {
         wall = 3; // Collided with bottom side of object2
     }
-    else {
-        wall = 0;
-        return false; // No collision
+
+    // Adjust player position based on collision
+    if (wall == 1) { // Top collision
+        checklist["y"] = object2["y"].get<int>() - object1["height"].get<int>();
+    } else if (wall == 3) { // Bottom collision
+        checklist["y"] = object2["y"].get<int>() + object2["height"].get<int>();
+    } else if (wall == 2) { // Left collision
+        checklist["x"] = object2["x"].get<int>() - object1["width"].get<int>();
+    } else if (wall == 4) { // Right collision
+        checklist["x"] = object2["x"].get<int>() + object2["width"].get<int>();
     }
 
     return true; // Collision detected
 }
-
 
 // Modify Button struct
 struct Button {
@@ -390,28 +396,6 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
                             }
                         }
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
                         if (messageJson.contains("updatePosition")) {
     auto& updateData = messageJson["updatePosition"];
     int socketId = updateData["socket"].get<int>();
@@ -1034,82 +1018,71 @@ int client_main() {
                 if (localPlayerSet && initGameFully) {
                 std::string localRoomName = "room1";  // Default room
 
-    for (const auto& room : game.items()) {
-        if (room.value().contains("players")) {
-            for (const auto& player : room.value()["players"]) {
-                if (player["socket"] == socket.native_handle()) {  // Use socket handle directly
-                    localRoomName = room.key();
-                    break;
+                for (const auto& room : game.items()) {
+                    if (room.value().contains("players")) {
+                        for (const auto& player : room.value()["players"]) {
+                            if (player["socket"] == socket.native_handle()) {  // Use socket handle directly
+                                localRoomName = room.key();
+                                break;
+                            }
+                        }
+                    }
                 }
-            }
-        }
-    }
     
-                    // Modify the collision checking section:
-Vector2 mousePoint = GetMousePosition();  // Define mousePoint here for use in collision checks
+                   // Iterate over objects in the current room
+                    if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
+                        // Reset movement flags at the start of each frame
+                        canMove["w"] = true;
+                        canMove["a"] = true;
+                        canMove["s"] = true;
+                        canMove["d"] = true;                    
 
-if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
-    // Reset movement flags
-    canMove["w"] = true;
-    canMove["a"] = true;
-    canMove["s"] = true;
-    canMove["d"] = true;
+                        for (const auto& object : game[localRoomName]["objects"]) {
+                            json predictedPos = localPlayerInterpolatedPos;
+                            int wall = 0;                   
 
-    float tolerance = 1.0f;  // Reduce tolerance
-    
-    for (const auto& object : game[localRoomName]["objects"]) {
-        json predictedPos = localPlayerInterpolatedPos;
-        int wall = 0;
-        
-        // Check collisions without immediate position adjustment
-        predictedPos = localPlayerInterpolatedPos;
-        predictedPos["y"] = localPlayerInterpolatedPos["y"].get<float>() - moveSpeed;
-        if (checkWallCollision(predictedPos, object, wall)) {
-            if (wall == 1) {
-                canMove["w"] = false;
-                // Only adjust position if we're actually moving up
-                if (keys["w"] || IsButtonPressed(buttonW, mousePoint)) {
-                    checklist["y"] = object["y"].get<int>() + object["height"].get<int>();
-                }
-            }
-        }
-        
-        predictedPos = localPlayerInterpolatedPos;
-        predictedPos["y"] = localPlayerInterpolatedPos["y"].get<float>() + moveSpeed;
-        if (checkWallCollision(predictedPos, object, wall)) {
-            if (wall == 3) {
-                canMove["s"] = false;
-                if (keys["s"] || IsButtonPressed(buttonS, mousePoint)) {
-                    checklist["y"] = object["y"].get<int>() - localPlayerInterpolatedPos["height"].get<float>();
-                }
-            }
-        }
-        
-        predictedPos = localPlayerInterpolatedPos;
-        predictedPos["x"] = localPlayerInterpolatedPos["x"].get<float>() - moveSpeed;
-        if (checkWallCollision(predictedPos, object, wall)) {
-            if (wall == 4) {
-                canMove["a"] = false;
-                if (keys["a"] || IsButtonPressed(buttonA, mousePoint)) {
-                    checklist["x"] = object["x"].get<int>() + object["width"].get<int>();
-                }
-            }
-        }
-        
-        predictedPos = localPlayerInterpolatedPos;
-        predictedPos["x"] = localPlayerInterpolatedPos["x"].get<float>() + moveSpeed;
-        if (checkWallCollision(predictedPos, object, wall)) {
-            if (wall == 2) {
-                canMove["d"] = false;
-                if (keys["d"] || IsButtonPressed(buttonD, mousePoint)) {
-                    checklist["x"] = object["x"].get<int>() - localPlayerInterpolatedPos["width"].get<float>();
-                }
-            }
-        }
-    }
-}
-                    //Point in which player state goes back to if not moving
+                            // Check for collisions in all directions
+                            // Up
+                            predictedPos["y"] = localPlayerInterpolatedPos["y"].get<float>() - moveSpeed;
+                            if (checkWallCollision(predictedPos, object, wall)) {
+                                if (wall == 1) {
+                                    canMove["w"] = false;
+                                    checklist["y"] = object["y"].get<float>() + object["height"].get<float>(); // Stop at top boundary
+                                }
+                            }                   
+
+                            // Down
+                            predictedPos["y"] = localPlayerInterpolatedPos["y"].get<float>() + moveSpeed;
+                            if (checkWallCollision(predictedPos, object, wall)) {
+                                if (wall == 3) {
+                                    canMove["s"] = false;
+                                    checklist["y"] = object["y"].get<float>() - localPlayerInterpolatedPos["height"].get<float>(); // Stop at bottom boundary
+                                }
+                            }                   
+
+                            // Left
+                            predictedPos["x"] = localPlayerInterpolatedPos["x"].get<float>() - moveSpeed;
+                            if (checkWallCollision(predictedPos, object, wall)) {
+                                if (wall == 4) {
+                                    canMove["a"] = false;
+                                    checklist["x"] = object["x"].get<float>() + object["width"].get<float>(); // Stop at left boundary
+                                }
+                            }                   
+
+                            // Right
+                            predictedPos["x"] = localPlayerInterpolatedPos["x"].get<float>() + moveSpeed;
+                            if (checkWallCollision(predictedPos, object, wall)) {
+                                if (wall == 2) {
+                                    canMove["d"] = false;
+                                    checklist["x"] = object["x"].get<float>() - localPlayerInterpolatedPos["width"].get<float>(); // Stop at right boundary
+                                }
+                            }
+                        }
+                    }
+
+                    //player state goes back to if not moving
                     int backPoint = 3;
+                    Vector2 mousePoint;
                     mousePoint = GetMousePosition();
 
                     keys = DetectKeyPress();
@@ -1139,7 +1112,7 @@ if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
                     }
 
                     // Normal movement after crouch check
-                    if ((keys["w"] || IsButtonPressed(buttonW, mousePoint)) && canMove["w"] == true) {
+                    if ((keys["w"] || IsButtonPressed(buttonW, mousePoint)) && canMove["w"]) {
                         checklist["goingup"] = true;
                         checklist["y"] = prevY - moveSpeed;
                         checklist["spriteState"] = 1; // North facing
@@ -1148,7 +1121,7 @@ if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
                         checklist["goingup"] = false;
                     }
 
-                    if ((keys["s"] || IsButtonPressed(buttonS, mousePoint)) && canMove["s"] == true) {
+                    if ((keys["s"] || IsButtonPressed(buttonS, mousePoint)) && canMove["s"]) {
                         checklist["goingdown"] = true; 
                         checklist["y"] = prevY + moveSpeed;
                         checklist["spriteState"] = 3; // South facing
@@ -1157,7 +1130,7 @@ if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
                         checklist["goingdown"] = false;
                     }
 
-                    if ((keys["a"] || IsButtonPressed(buttonA, mousePoint)) && canMove["a"] == true) {
+                    if ((keys["a"] || IsButtonPressed(buttonA, mousePoint)) && canMove["a"]) {
                         checklist["goingleft"] = true;
                         checklist["x"] = prevX - moveSpeed;
                         checklist["spriteState"] = 4; // West facing
@@ -1166,7 +1139,7 @@ if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
                         checklist["goingleft"] = false;
                     }
 
-                    if ((keys["d"] || IsButtonPressed(buttonD, mousePoint)) && canMove["d"] == true) {
+                    if ((keys["d"] || IsButtonPressed(buttonD, mousePoint)) && canMove["d"]) {
                         checklist["goingright"] = true;
                         checklist["x"] = prevX + moveSpeed;
                         checklist["spriteState"] = 2; // East facing
