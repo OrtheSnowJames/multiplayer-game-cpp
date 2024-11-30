@@ -963,7 +963,7 @@ int client_main() {
             boost::asio::streambuf buffer;
             bool initGame = false;
             bool initGameFully = false;
-            bool localPlayerSet = false;  // New flag to track if local player is set
+            bool localPlayerSet = false;  //new flag to track if local player is set
             
             // Timer for sending updates
             auto lastSendTime = std::chrono::steady_clock::now();

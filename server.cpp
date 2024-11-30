@@ -15,10 +15,19 @@
 #include <boost/asio/signal_set.hpp>
 #include <chrono>
 #include <filesystem>
+#include <websocketpp/config/asio_no_tls.hpp>
+#include <websocketpp/server.hpp>
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
 namespace fs = std::filesystem;
+
+typedef websocketpp::server<websocketpp::config::asio> WebSocketServer;
+typedef std::map<websocketpp::connection_hdl, int, std::owner_less<websocketpp::connection_hdl>> ConnectionMap;
+
+WebSocketServer server;
+ConnectionMap connections;
+std::mutex connection_mutex;
 
 void setupSignalHandlers(boost::asio::io_context& io_context) {
     boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
@@ -376,6 +385,56 @@ void startServer(int port) {
     io_context.run();
 }
 
+int nextId = 0;
+int getNextId() {
+    return ++nextId;
+}
+
+void on_message(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr msg) {
+    try {
+        json messageJson = json::parse(msg->get_payload());
+        // Process message and create response
+        json response = {{"status", "received"}};
+        
+        // Use WebSocket send instead of boost::asio::write
+        server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
+    } catch (const std::exception& e) {
+        std::cerr << "Error in message handler: " << e.what() << std::endl;
+    }
+}
+
+void on_open(websocketpp::connection_hdl hdl) {
+    std::lock_guard<std::mutex> lock(connection_mutex);
+    int id = getNextId(); 
+    connections[hdl] = id;
+}
+
+void on_close(websocketpp::connection_hdl hdl) {
+    std::lock_guard<std::mutex> lock(connection_mutex);
+    int id = connections[hdl];
+    connections.erase(hdl);
+    eraseUser(id);
+}
+
+// Define WebSocket server types
+typedef websocketpp::server<websocketpp::config::asio> WebSocketServer;
+WebSocketServer wsServer;
+std::mutex wsConnectionMutex;
+std::map<websocketpp::connection_hdl, int, std::owner_less<websocketpp::connection_hdl>> wsConnections;
+
+// Add WebSocket handlers
+void on_ws_message(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr msg) {
+    try {
+        // Use existing handleMessage logic but adapt for WebSocket
+        std::string payload = msg->get_payload();
+        json messageJson = json::parse(payload);
+        // Handle message same as TCP but use WebSocket send
+        wsServer.send(hdl, messageJson.dump(), msg->get_opcode());
+    } catch (const std::exception& e) {
+        std::cerr << "WebSocket message error: " << e.what() << std::endl;
+    }
+}
+
 int main() { 
     std::string currentWindow = "Server";
     int fps = getEnvVar<int>("FPS", 60);
@@ -388,10 +447,10 @@ int main() {
     fs::path assets = "assets"; // Define the assets path
     fs::path imgPath = root / assets;
     fs::path bg1ImgPath = imgPath / "room1Bg.png";
-    
+    std::cout << "cli var is: " << cli << std::endl;
 
     Texture2D bg1Img; // Declare bg1Img as Texture2D
-    if (!cli) {
+    if (cli == false) {
         InitWindow(screenWidth, screenHeight, "Server");
         SetTargetFPS(fps);
         
@@ -442,7 +501,7 @@ int main() {
                 if (currentRoom == "room1") {
                     if (bg1Img.id != 0) DrawTexture(bg1Img, 0, 0, WHITE);
                     for (auto& p : game["room1"]["players"]) {
-                        DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, BLACK);
+                        DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, WHITE);
                         DrawRectangle(p["x"].get<int>(), p["y"].get<int>(), 20, 20, RED);
                     }
                     DrawRectangle(0, 100, 50, 20, BLACK);
@@ -452,7 +511,7 @@ int main() {
                     }
                 } else if (currentRoom == "room2") {
                     for (auto& p : game["room2"]["players"]) {
-                        DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, BLACK);
+                        DrawText(p["name"].get<std::string>().c_str(), p["x"].get<int>() + 10, p["y"].get<int>(), 20, WHITE);
                         DrawRectangle(p["x"].get<int>(), p["y"].get<int>(), 20, 20, RED);
                     }
                     DrawRectangle(0, 100, 50, 20, BLACK);
@@ -531,12 +590,47 @@ int main() {
         inputThread.join();
         serverThread.join();
     }
-    try{
-        setupSignalHandlers(io_context); if (!cli) {CloseWindow();}
+    try {
+        setupSignalHandlers(io_context);
+        if (!cli) {
+            CloseWindow();
+        }
+        
+        // Create a local WebSocket server instance
+        WebSocketServer* wsServer = new WebSocketServer();
+        
+        // Initialize WebSocket server
+        wsServer->set_access_channels(websocketpp::log::alevel::all);
+        wsServer->clear_access_channels(websocketpp::log::alevel::frame_payload);
+        wsServer->init_asio();
+
+        // Set handlers with proper namespace
+        using websocketpp::lib::placeholders::_1;
+        using websocketpp::lib::placeholders::_2;
+        wsServer->set_message_handler(websocketpp::lib::bind(&on_message, _1, _2));
+        wsServer->set_open_handler(websocketpp::lib::bind(&on_open, _1));
+        wsServer->set_close_handler(websocketpp::lib::bind(&on_close, _1));
+
+        // Start WebSocket server
+        wsServer->listen(8080);
+        wsServer->start_accept();
+
+        // Run the server in its own thread
+        std::thread wsThread([wsServer]() {
+            wsServer->run();
+        });
+
+        // Wait for server thread to finish
+        if (wsThread.joinable()) {
+            wsThread.join();
+        }
+        
+        delete wsServer;
+        return 0;
+        
     } catch (const std::exception& e) {
         logToFile(std::string("ERROR: ") + e.what(), ERROR);
         std::cerr << "Exception: " << e.what() << std::endl;
         return -1;
     }
-    return 0;
 }
