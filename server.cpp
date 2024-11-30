@@ -42,9 +42,9 @@ json game = {
     {"room1", {
         {"players", {}},
         {"objects", json::array({
-            {{"x", 123}, {"y", 144}, {"width", 228}, {"height", 60}},
-            {{"x", 350}, {"y", 159}, {"width", 177}, {"height", 74}},
-            {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 147}}
+            {{"x", 123}, {"y", 144}, {"width", 228}, {"height", 60}, {"objID", 1}},
+            {{"x", 350}, {"y", 159}, {"width", 177}, {"height", 74}, {"objID", 2}},
+            {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 147}, {"objID", 3}}
         })},
         {"enemies", {}}
     }}
@@ -141,7 +141,7 @@ json createUser(const std::string& name, int id) {
     int fid;
     if (typeid(id) != typeid(int)) {
         std::cout << "probably on windows" << std::endl;
-        static_cast<int>(id);
+        id = static_cast<int>(id);
         fid = id;
     }
     else {
@@ -337,7 +337,7 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
             });
     } else {
         std::cerr << "Read error: " << error.message() << std::endl;
-        logToFile("Read error: " << error.message(), ERROR);
+        logToFile("Read error: " + error.message(), ERROR);
         eraseUser(socket.native_handle());
     }
 }
@@ -647,6 +647,14 @@ int main() {
                                         return p["socket"].get<int>() == kickId;
                                     });
                                 if (it != players.end()) {
+                                    json kickedPlayer = *it;
+                                    int sockid = kickedPlayer["socket"].get<int>();
+                                    for (auto& p : connected_sockets) {
+                                        if (p->native_handle() == sockid) {
+                                            boost::asio::write(*p, boost::asio::buffer("quitGame\n"));
+                                            break;
+                                        }
+                                    }
                                     players.erase(it, players.end());
                                     // Broadcast updated game state
                                     json gameUpdate = {{"getGame", game}};
