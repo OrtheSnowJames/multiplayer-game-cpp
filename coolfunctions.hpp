@@ -18,7 +18,7 @@ T getEnvVar(const std::string& varName, const T& defaultValue) {
     T result;
     if constexpr (std::is_same<T, bool>::value) {
         std::string valueStr = envValue;
-        return (valueStr == "true" || valueStr == "1");
+        return (valueStr == "true" || valueStr == "1" || valueStr == "TRUE" || valueStr == "True");
     } else if constexpr (std::is_same<T, std::string>::value) {
         return std::string(envValue);
     } else {

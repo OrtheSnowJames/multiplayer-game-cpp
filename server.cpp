@@ -459,17 +459,53 @@ int main() {
         
         // Modify the input thread to check for window close
         boost::asio::io_context* io_context_ptr = &io_context;
-        std::thread inputThread([&gameRunning, io_context_ptr] {
+        std::thread inputThread([&gameRunning] {
             std::string input;
-            while (!shouldClose) {  // Check the atomic flag instead
-                // Use non-blocking input checking or add a timeout
-                if (WindowShouldClose()) {
-                    shouldClose = true;
+            while (gameRunning) {
+                std::getline(std::cin, input);
+                if (input == "quit" || input == "^C") {
                     gameRunning = false;
-                    io_context_ptr->stop();
-                    break;
+                } else if (input == "kick") {
+                    bool waitForKick = true;
+                    std::cout << "Enter id to kick:";
+                    // Fix: Use get<int> for socket IDs
+                    for (auto& p : game["room1"]["players"]) {
+                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
+                    }
+                    for (auto& p : game["room2"]["players"]) {
+                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
+                    }
+                    std::thread kickThread([&waitForKick, &gameRunning] {
+                        std::string input;
+                        while (waitForKick) {
+                            std::getline(std::cin, input);
+                            if (input == "quit") {
+                                gameRunning = false;
+                                io_context.stop();
+                            } else if (!input.empty()) {
+                                try {
+                                    int kickId = std::stoi(input);
+                                    for (auto& room : game.items()) {  // Iterate through all rooms
+                                        if (room.value().contains("players")) {
+                                            auto& players = room.value()["players"];
+                                            players.erase(
+                                                std::remove_if(players.begin(), players.end(),
+                                                    [kickId](const json& p) {
+                                                        return p["socket"].get<int>() == kickId;
+                                                    }
+                                                ),
+                                                players.end()
+                                            );
+                                        }
+                                    }
+                                    waitForKick = false;
+                                } catch (const std::exception& e) {
+                                    std::cout << "Invalid ID format" << std::endl;
+                                }
+                            }
+                        }
+                    });
                 }
-                // ... rest of input handling ...
             }
         });
             if (fs::exists(bg1ImgPath)) {
@@ -536,57 +572,69 @@ int main() {
             serverThread.join();
         }
     } else {
+        // CLI mode
         std::cout << "Starting server on port " << port << "...\n";
         std::thread serverThread(startServer, port);
         std::thread inputThread([&gameRunning] {
-            std::string input;
-            while (gameRunning) {
-                std::getline(std::cin, input);
-                if (input == "quit" || input == "^C") {
-                    gameRunning = false;
-                } else if (input == "kick") {
-                    bool waitForKick = true;
-                    std::cout << "Enter id to kick:";
-                    // Fix: Use get<int> for socket IDs
-                    for (auto& p : game["room1"]["players"]) {
-                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
+        std::string input;
+        while (gameRunning) {
+            std::getline(std::cin, input);
+            if (input == "quit" || input == "^C") {
+                gameRunning = false;
+                json quitMessage = {{"quitGame", true}};
+                broadcastMessage(quitMessage.dump());
+                io_context.stop();
+                break;
+            } else if (input == "kick") {
+                std::cout << "Current players:\n";
+                {
+                    std::lock_guard<std::mutex> lock(game_mutex);
+                    // Show players from all rooms
+                    for (const auto& room : game.items()) {
+                        if (room.value().contains("players")) {
+                            for (const auto& player : room.value()["players"]) {
+                                std::cout << player["socket"].get<int>() << " - " 
+                                        << player["name"].get<std::string>() << std::endl;
+                            }
+                        }
+                        else {
+                            std::cout << "No players in room " << room.key() << std::endl;
+                        }
                     }
-                    for (auto& p : game["room2"]["players"]) {
-                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
-                    }
-                    std::thread kickThread([&waitForKick, &gameRunning] {
-                        std::string input;
-                        while (waitForKick) {
-                            std::getline(std::cin, input);
-                            if (input == "quit") {
-                                gameRunning = false;
-                                io_context.stop();
-                            } else if (!input.empty()) {
-                                try {
-                                    int kickId = std::stoi(input);
-                                    for (auto& room : game.items()) {  // Iterate through all rooms
-                                        if (room.value().contains("players")) {
-                                            auto& players = room.value()["players"];
-                                            players.erase(
-                                                std::remove_if(players.begin(), players.end(),
-                                                    [kickId](const json& p) {
-                                                        return p["socket"].get<int>() == kickId;
-                                                    }
-                                                ),
-                                                players.end()
-                                            );
-                                        }
-                                    }
-                                    waitForKick = false;
-                                } catch (const std::exception& e) {
-                                    std::cout << "Invalid ID format" << std::endl;
+                }
+
+                std::cout << "Enter player ID to kick: ";
+                std::string kickInput;
+                std::getline(std::cin, kickInput);
+
+                try {
+                    int kickId = std::stoi(kickInput);
+                    {
+                        std::lock_guard<std::mutex> lock(game_mutex);
+                        // Remove player from all rooms
+                        for (auto& room : game.items()) {
+                            if (room.value().contains("players")) {
+                                auto& players = room.value()["players"];
+                                auto it = std::remove_if(players.begin(), players.end(),
+                                    [kickId](const json& p) {
+                                        return p["socket"].get<int>() == kickId;
+                                    });
+                                if (it != players.end()) {
+                                    players.erase(it, players.end());
+                                    // Broadcast updated game state
+                                    json gameUpdate = {{"getGame", game}};
+                                    broadcastMessage(gameUpdate);
+                                    std::cout << "Player kicked successfully\n";
                                 }
                             }
                         }
-                    });
+                    }
+                } catch (const std::exception& e) {
+                    std::cout << "Invalid player ID\n";
                 }
             }
-        });
+        }
+    });
         inputThread.join();
         serverThread.join();
     }
@@ -595,6 +643,7 @@ int main() {
         if (!cli) {
             CloseWindow();
         }
+        
         
         // Create a local WebSocket server instance
         WebSocketServer* wsServer = new WebSocketServer();
@@ -612,7 +661,7 @@ int main() {
         wsServer->set_close_handler(websocketpp::lib::bind(&on_close, _1));
 
         // Start WebSocket server
-        wsServer->listen(8080);
+        wsServer->listen(5767);
         wsServer->start_accept();
 
         // Run the server in its own thread

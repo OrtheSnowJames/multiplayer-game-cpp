@@ -363,3 +363,27 @@ Server started on 10.0.0.103:5767
 Server started on 10.0.0.103:5767
 [INFO] Fri Nov 29 21:34:04 2024
 Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 21:44:02 2024
+Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 21:46:43 2024
+Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 21:48:22 2024
+Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 21:53:42 2024
+Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 21:54:29 2024
+Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 22:06:58 2024
+Server started on 10.0.0.103:5767
+[ERROR] Fri Nov 29 22:07:04 2024
+ERROR: Underlying Transport Error
+2024-11-29 22:07:13 [ERROR] ERROR: write: Broken pipe [system:32]
+[INFO] Fri Nov 29 22:08:47 2024
+Server started on 10.0.0.103:5767
+[ERROR] Fri Nov 29 22:08:53 2024
+ERROR: Underlying Transport Error
+2024-11-29 22:08:55 [ERROR] ERROR: write: Broken pipe [system:32]
+[INFO] Fri Nov 29 22:09:06 2024
+Server started on 10.0.0.103:5767
+[INFO] Fri Nov 29 22:14:59 2024
+Server started on 10.0.0.103:5767

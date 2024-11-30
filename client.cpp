@@ -748,6 +748,21 @@ void debugTexture(const std::string& name, const Texture2D& texture, const fs::p
     std::cout << "Dimensions: " << texture.width << "x" << texture.height << "\n";
 }
 
+// Add these near the top with other global variables
+std::chrono::steady_clock::time_point wKeyPressStart;
+bool wKeyPressed = false;
+bool wKeyStuck = false;
+
+bool notsendingugh = false;
+
+// Add this function before client_main()
+void handleStuckState() {
+    // This function is called when player is stuck pressing W for 1 second
+    std::cout << "Player is stuck!" << std::endl;
+    logToFile("Player attempted to move up but was stuck", INFO);
+    notsendingugh = true;
+}
+
 int client_main() {
     int WindowsOpen = 0;
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
@@ -1117,8 +1132,26 @@ int client_main() {
                         checklist["y"] = prevY - moveSpeed;
                         checklist["spriteState"] = 1; // North facing
                         send = true;
+                        wKeyStuck = false;
+                        wKeyPressed = true;
+                        wKeyPressStart = std::chrono::steady_clock::now();
+                    } else if (keys["w"] || IsButtonPressed(buttonW, mousePoint)) {
+                        // W is pressed but can't move
+                        if (!wKeyPressed) {
+                            wKeyPressed = true;
+                            wKeyPressStart = std::chrono::steady_clock::now();
+                        } else if (!wKeyStuck) {
+                            auto now = std::chrono::steady_clock::now();
+                            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - wKeyPressStart);
+                            if (duration.count() >= 1000) {  // 1 second
+                                handleStuckState();
+                                wKeyStuck = true;
+                            }
+                        }
                     } else {
                         checklist["goingup"] = false;
+                        wKeyPressed = false;
+                        wKeyStuck = false;
                     }
 
                     if ((keys["s"] || IsButtonPressed(buttonS, mousePoint)) && canMove["s"]) {
@@ -1177,7 +1210,7 @@ int client_main() {
                     if (room1BgT.id != 0) {
                         DrawTexture(room1BgT, 0, 0, WHITE);
                     }
-                    DrawButton(buttonW);DrawButton(buttonA);DrawButton(buttonS);DrawButton(buttonD); DrawButton(buttonShift); DrawButton(buttonQuit);
+                    DrawButton(buttonW);DrawButton(buttonA);DrawButton(buttonS);DrawButton(buttonD); DrawButton(buttonShift); DrawButton(buttonQuit); if (notsendingugh) {DrawText("You are stuck! You probably got kicked though...", 10, 10, 20, BLACK);}
 
                     float deltaTime = GetFrameTime();
                     

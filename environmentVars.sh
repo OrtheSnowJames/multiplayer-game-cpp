@@ -7,7 +7,7 @@ export FPS=60 # put your desired fps here, recommended >75
 export PORT=5767 # put your desired port here; default is 5767
 export NAME="TEST: James2" # put your desired name here
 export IP=10.0.0.103 # put your server's IP here, for runServer put 127.0.1.1
-export SERVER_CLI=1 # put true if you want to run the server in CLI mode
+export CLI=true # put true if you want to run the server in CLI mode
 export PREFERRED_LATENCY=1 # put your preferred latency here; not guarenteed to work
 
 # Settings will be saved in this file, but you have to change them here so the 
