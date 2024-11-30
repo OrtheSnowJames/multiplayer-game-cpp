@@ -44,7 +44,7 @@ json game = {
         {"objects", json::array({
             {{"x", 123}, {"y", 144}, {"width", 228}, {"height", 60}, {"objID", 1}},
             {{"x", 350}, {"y", 159}, {"width", 177}, {"height", 74}, {"objID", 2}},
-            {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 147}, {"objID", 3}}
+            {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 60}, {"objID", 3}}
         })},
         {"enemies", {}}
     }}
