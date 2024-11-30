@@ -682,28 +682,6 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
         playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
     }
 }
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
                         break;  // Exit loop after processing valid message
                     } catch (const json::parse_error&) {
                         continue; // Keep reading if JSON is invalid
@@ -767,6 +745,7 @@ int client_main() {
     int WindowsOpen = 0;
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
     int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
+    int skin = getEnvVar<int>("wharfs", 1);
     int fps = getEnvVar<int>("FPS", 60);
     int port = getEnvVar<int>("PORT", 5767);
     int preferredLatency = getEnvVar<int>("PREFERRED_LATENCY", 150);
@@ -924,7 +903,7 @@ int client_main() {
         spriteSheet["2"] = player2; spriteSheet["D"] = player2;
         spriteSheet["3"] = player3; spriteSheet["S"] = player3;
         spriteSheet["4"] = player4; spriteSheet["A"] = player4;
-        spriteSheet["5"] = player5;
+        spriteSheet["5"] = player5; spriteSheet["shift"] = player5; 
         UnloadImage(playerImage);
         UnloadImage(croppedImage1);
 
@@ -1031,18 +1010,24 @@ int client_main() {
                 };
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
-                std::string localRoomName = "room1";  // Default room
+                    std::string localRoomName = "room1";  // Default room
+                    int socketHandle;
+                    if (typeid(socket.native_handle()) != typeid(int)) {
+                        socketHandle = static_cast<int>(socket.native_handle());
+                    } else {
+                        socketHandle = socket.native_handle();
+                    }
 
-                for (const auto& room : game.items()) {
-                    if (room.value().contains("players")) {
-                        for (const auto& player : room.value()["players"]) {
-                            if (player["socket"] == socket.native_handle()) {  // Use socket handle directly
-                                localRoomName = room.key();
-                                break;
+                    for (const auto& room : game.items()) {
+                        if (room.value().contains("players")) {
+                            for (const auto& player : room.value()["players"]) {
+                                if (player["socket"] == socketHandle) {
+                                    localRoomName = room.key();
+                                    break;
+                                }
                             }
                         }
                     }
-                }
     
                    // Iterate over objects in the current room
                     if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
@@ -1116,13 +1101,15 @@ int client_main() {
                         }
                         moveSpeed = 2;  // Slower while crouched
                     } else if (checklist["spriteState"].get<int>() == 5) {
-                        // Restore previous state or determine from current movement
+
                         if (checklist.contains("prevState")) {
                             checklist["spriteState"] = checklist["prevState"];
+                            moveSpeed = 5; 
                         } else {
-                            checklist["spriteState"] = 3;  // Default to standing
+                            checklist["spriteState"] = 3; 
+                            moveSpeed = 5;
                         }
-                        moveSpeed = 5;  // Normal speed
+                        moveSpeed = 5; 
                         send = true;
                     }
 

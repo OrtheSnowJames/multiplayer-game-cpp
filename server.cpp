@@ -51,7 +51,13 @@ json game = {
 };
 
 json lookForPlayer(tcp::socket& socket) {
-    int sockID = socket.native_handle();
+    int sockID;
+    if (typeid(socket.native_handle()) != typeid(int)) {
+        sockID = static_cast<int>(socket.native_handle());
+    } else {
+        sockID = socket.native_handle();
+    }
+    
     for (auto& room : game.items()) {  // Iterate through rooms
         if (room.value().contains("players")) {
             for (auto& player : room.value()["players"]) {
@@ -66,7 +72,13 @@ json lookForPlayer(tcp::socket& socket) {
 }
 
 std::string lookForRoom(tcp::socket& socket) {
-    int sockID = socket.native_handle();
+    int sockID;
+    if (typeid(socket.native_handle()) != typeid(int)) {
+        sockID = static_cast<int>(socket.native_handle());
+    } else {
+        sockID = socket.native_handle();
+    }
+    
     for (auto& room : game.items()) {  // Iterate through rooms
         if (room.value().contains("players")) {
             for (auto& player : room.value()["players"]) {
@@ -126,6 +138,15 @@ bool checkCollision(const json& object1, const json& object2) {
 }
 
 json createUser(const std::string& name, int id) {
+    int fid;
+    if (typeid(id) != typeid(int)) {
+        std::cout << "probably on windows" << std::endl;
+        static_cast<int>(id);
+        fid = id;
+    }
+    else {
+        fid = id;
+    }
     std::random_device rd;
     json newPlayer = {
         {"name", name},
@@ -136,7 +157,7 @@ json createUser(const std::string& name, int id) {
         {"width", 64}, 
         {"height", 64},
         {"inventory", {{"shields", 0}, {"bananas", 0}}},
-        {"socket", id},
+        {"socket", fid},
         {"spriteState", 1},
         {"skin", 1},
         {"local", false},
@@ -208,11 +229,17 @@ void broadcastMessage(const json& message) {
 void handleMessage(const std::string& message, tcp::socket& socket) {
     try {
         json messageJson = json::parse(message);
+        int sockID;
+        if (typeid(socket.native_handle()) != typeid(int)) {
+            sockID = static_cast<int>(socket.native_handle());
+        } else {
+            sockID = socket.native_handle();
+        }
         
         // Initial connection - only time we send full game state
         if (messageJson.contains("currentName")) {
             std::string name = messageJson["currentName"].get<std::string>();
-            json newPlayer = createUser(name, socket.native_handle());
+            json newPlayer = createUser(name, sockID);
             newPlayer["local"] = true;
             
             game["room1"]["players"].push_back(newPlayer);
@@ -249,7 +276,7 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
             int spriteState = messageJson.value("spriteState", 1);  // Get sprite state with default
             
             for (auto& p : game[roomName]["players"]) {
-                if (p["socket"].get<int>() == socket.native_handle()) {
+                if (p["socket"].get<int>() == sockID) {
                     if (messageJson.contains("spriteState")) {
                         p["spriteState"] = spriteState;
                         changed = true;
@@ -310,7 +337,7 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
             });
     } else {
         std::cerr << "Read error: " << error.message() << std::endl;
-        logToFile("Read error: " + error.message(), ERROR);
+        logToFile("Read error: " << error.message(), ERROR);
         eraseUser(socket.native_handle());
     }
 }
