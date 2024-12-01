@@ -8,12 +8,7 @@ sudo apt install libraylib-dev
 sudo apt install xterm
 sudo apt install libx11-dev
 elif [packagemanager == "pacman"]; then
-sudo pacman -S base-devel git
-sudo pacman -S boost
-sudo pacman -S nlohmann-json
-sudo pacman -S raylib
-sudo pacman -S xterm
-sudo pacman -S libx11
+sudo pacman -S base-devel git boost nlohmann-json raylib xterm libx11 
 elif [packagemanager == "yum"]; then
 sudo yum groupinstall "Development Tools"
 sudo yum install git
@@ -22,10 +17,22 @@ sudo yum install nlohmann-json
 sudo yum install raylib
 sudo yum install xterm
 sudo yum install libx11
+elif [packagemanager == "dnf"]; then
+sudo dnf groupinstall "Development Tools"
+sudo dnf install git
+sudo dnf install boost
+sudo dnf install nlohmann-json
+sudo dnf install raylib
+sudo dnf install xterm
+sudo dnf install libx11
+elif [packagemanager == "zypper"]; then
+sudo zypper install -t pattern devel_basis
+sudo zypper install git
+sudo zypper install boost
+sudo zypper install nlohmann-json
+sudo zypper install raylib
+sudo zypper install xterm
+sudo zypper install libx11
 else
+echo not supported yet
 fi
-#put git packages here
-cd /home/
-git clone https://github.com/raysan5/raylib
-#put code packages here
-code --install-extension ms-vscode.cpptools

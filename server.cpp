@@ -144,9 +144,7 @@ json createUser(const std::string& name, int id) {
         id = static_cast<int>(id);
         fid = id;
     }
-    else {
-        fid = id;
-    }
+    else fid = id;
     std::random_device rd;
     json newPlayer = {
         {"name", name},
@@ -226,6 +224,43 @@ void broadcastMessage(const json& message) {
     game = game;
 }
 
+bool findPlayer(std::string name) {
+    for (auto& room : game.items()) {
+        if (room.value().contains("players")) {
+            for (auto& player : room.value()["players"]) {
+                if (player["name"] == name) {
+                    std::cout << "Player found: " << player.dump() << std::endl;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+void switchRoom(json& player, const std::string& newRoom) {
+    std::lock_guard<std::mutex> lock(game_mutex);
+    for (auto& room : game.items()) {
+        if (room.value().contains("players")) {
+            auto& players = room.value()["players"];
+            players.erase(
+                std::remove_if(players.begin(), players.end(),
+                    [&player](const json& p) {
+                        return p["socket"] == player["socket"];
+                    }
+                ),
+                players.end()
+            );
+        }
+    }
+    player["room"] = std::stoi(newRoom.substr(4));
+    game[newRoom]["players"].push_back(player);
+    json messageS = {{"getRoom", game[newRoom]}, {"room", newRoom}};
+    boost::asio::write(*connected_sockets[player["socket"].get<int>()], boost::asio::buffer(messageS.dump() + "\n"));
+    json messageA = player;
+    broadcastMessage(messageA);
+}
+
 void handleMessage(const std::string& message, tcp::socket& socket) {
     try {
         json messageJson = json::parse(message);
@@ -238,7 +273,18 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
         
         // Initial connection - only time we send full game state
         if (messageJson.contains("currentName")) {
-            std::string name = messageJson["currentName"].get<std::string>();
+            std::string name;
+            if (findPlayer(messageJson["currentName"].get<std::string>())) {
+                for (int i = 1; i < 100; i++) {
+                    std::string newName = messageJson["currentName"].get<std::string>() + std::to_string(i);
+                    if (!findPlayer(newName)) {
+                        name = newName;
+                        break;
+                    }
+                }
+            } else {
+                name = messageJson["currentName"].get<std::string>();
+            }
             json newPlayer = createUser(name, sockID);
             newPlayer["local"] = true;
             

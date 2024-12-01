@@ -1,5 +1,9 @@
 {
   "dependencies": [
-    "boost"
+    "boost",
+    "raylib",
+    "nlohmann-json",
+    "gtest",
+    "emscripten"
   ]
 }

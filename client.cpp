@@ -352,6 +352,10 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 }
                             }
                         }
+                        if (messageJson.contains("getRoom")) {
+                            std::string roomName = messageJson["room"].get<std::string>();
+                            game[roomName] = messageJson["getRoom"];
+                        }
                         if (messageJson.contains("updatePosition")) {
                             auto& updateData = messageJson["updatePosition"];
                             int socketId = updateData["socket"].get<int>();
