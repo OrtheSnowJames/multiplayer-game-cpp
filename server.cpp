@@ -602,6 +602,15 @@ void on_ws_message(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr
     }
 }
 
+std::shared_ptr<tcp::socket> getSocketFromId(int socketId) {
+    std::lock_guard<std::mutex> lock(socket_mutex);
+    auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
+        [socketId](const std::shared_ptr<tcp::socket>& socket) {
+            return socket && socket->native_handle() == socketId;
+        });
+    return (it != connected_sockets.end()) ? *it : nullptr;
+}
+
 int main() { 
     std::string currentWindow = "Server";
     int fps = getEnvVar<int>("FPS", 60);
@@ -673,11 +682,9 @@ int main() {
                                         if (it != players.end()) {
                                             json kickedPlayer = *it;
                                             int sockid = kickedPlayer["socket"].get<int>();
-                                            for (auto& p : connected_sockets) {
-                                                if (p->native_handle() == sockid) {
-                                                    boost::asio::write(*p, boost::asio::buffer("quitGame\n"));
-                                                    break;
-                                                }
+                                            if (auto socket = getSocketFromId(sockid)) {
+                                                json kickedMessage = {{"quitGame", true}};
+                                                boost::asio::write(*socket, boost::asio::buffer(kickedMessage.dump() + "\n"));
                                             }
                                             players.erase(it, players.end());
                                             // Broadcast updated game state
@@ -764,83 +771,102 @@ int main() {
         }
     } else {
         // CLI mode
-        std::cout << "Starting server on port " << port << "...\n";
-        std::thread serverThread(startServer, port);
-        std::thread inputThread([&gameRunning] {
-        std::string input;
-        while (gameRunning) {
-            std::getline(std::cin, input);
-            if (input == "quit" || input == "^C") {
-                gameRunning = false;
-                json quitMessage = {{"quitGame", true}};
-                broadcastMessage(quitMessage.dump());
-                io_context.stop();
-                break;
-            } else if (input == "kick") {
-                std::cout << "Current players:\n";
-                {
-                    std::lock_guard<std::mutex> lock(game_mutex);
-                    // Show players from all rooms
-                    for (const auto& room : game.items()) {
-                        if (room.value().contains("players")) {
-                            for (const auto& player : room.value()["players"]) {
-                                std::cout << player["socket"].get<int>() << " - " 
-                                        << player["name"].get<std::string>() << std::endl;
-                            }
-                        }
-                        else {
-                            std::cout << "No players in room " << room.key() << std::endl;
-                        }
+        if (cli) {
+            std::cout << "Starting server on port " << port << "...\n";
+            
+            // Start server in a separate thread
+            std::thread serverThread([port]() {
+                tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+                acceptConnections(acceptor);
+                
+                // Keep io_context running
+                while (!shouldClose) {
+                    try {
+                        io_context.run();
+                    } catch (const std::exception& e) {
+                        std::cerr << "Server error: " << e.what() << std::endl;
                     }
+                    io_context.restart();
                 }
+            });
 
-                std::cout << "Enter player ID to kick: ";
-                std::string kickInput;
-                std::getline(std::cin, kickInput);
-
-                try {
-                    int kickId = std::stoi(kickInput);
+            // Main input loop
+            while (gameRunning) {
+                std::string input;
+                std::getline(std::cin, input);
+                
+                if (input == "quit" || input == "^C") {
+                    gameRunning = false;
+                    shouldClose = true;
+                    json quitMessage = {{"quitGame", true}};
+                    broadcastMessage(quitMessage);
+                    io_context.stop();
+                    break;
+                } else if (input == "kick") {
+                    std::cout << "Current players:\n";
                     {
                         std::lock_guard<std::mutex> lock(game_mutex);
-                        // Remove player from all rooms
-                        for (auto& room : game.items()) {
+                        // Show players from all rooms
+                        for (const auto& room : game.items()) {
                             if (room.value().contains("players")) {
-                                auto& players = room.value()["players"];
-                                auto it = std::remove_if(players.begin(), players.end(),
-                                    [kickId](const json& p) {
-                                        return p["socket"].get<int>() == kickId;
-                                    });
-                                if (it != players.end()) {
-                                    json kickedPlayer = *it;
-                                    int sockid = kickedPlayer["socket"].get<int>();
-                                    for (auto& p : connected_sockets) {
-                                        if (p->native_handle() == sockid) {
-                                            boost::asio::write(*p, boost::asio::buffer("quitGame\n"));
-                                            break;
+                                for (const auto& player : room.value()["players"]) {
+                                    std::cout << player["socket"].get<int>() << " - " 
+                                            << player["name"].get<std::string>() << std::endl;
+                                }
+                            }
+                            else {
+                                std::cout << "No players in room " << room.key() << std::endl;
+                            }
+                        }
+                    }
+
+                    std::cout << "Enter player ID to kick: ";
+                    std::string kickInput;
+                    std::getline(std::cin, kickInput);
+
+                    try {
+                        int kickId = std::stoi(kickInput);
+                        {
+                            std::lock_guard<std::mutex> lock(game_mutex);
+                            // Remove player from all rooms
+                            for (auto& room : game.items()) {
+                                if (room.value().contains("players")) {
+                                    auto& players = room.value()["players"];
+                                    auto it = std::remove_if(players.begin(), players.end(),
+                                        [kickId](const json& p) {
+                                            return p["socket"].get<int>() == kickId;
+                                        });
+                                    json kickedPlayer;
+                                    if (it != players.end()) {
+                                        kickedPlayer = *it;
+                                        int sockid = kickedPlayer["socket"].get<int>();
+                                        if (auto socket = getSocketFromId(sockid)) {
+                                            json kickedMessage = {{"quitGame", true}};
+                                            boost::asio::write(*socket, boost::asio::buffer(kickedMessage.dump() + "\n"));
                                         }
+                                        players.erase(it, players.end());
+                                        json gameUpdate = {{"getGame", game}};
+                                        broadcastMessage(gameUpdate);
+                                        std::cout << "Player kicked successfully\n";
                                     }
-                                    players.erase(it, players.end());
-                                    // Broadcast updated game state
-                                    json gameUpdate = {{"getGame", game}};
-                                    broadcastMessage(gameUpdate);
-                                    std::cout << "Player kicked successfully\n";
                                 }
                             }
                         }
+                    } catch (const std::exception& e) {
+                        std::cout << "Invalid player ID\n";
                     }
-                } catch (const std::exception& e) {
-                    std::cout << "Invalid player ID\n";
+                } else if (input == "game") {
+                    std::lock_guard<std::mutex> lock(game_mutex);
+                    std::cout << "\n=== CURRENT GAME STATE ===\n";
+                    std::cout << game.dump(2) << std::endl;
+                    std::cout << "========================\n\n";
                 }
-            } else if (input == "game") {  // Add new command
-                std::lock_guard<std::mutex> lock(game_mutex);
-                std::cout << "\n=== CURRENT GAME STATE ===\n";
-                std::cout << game.dump(2) << std::endl;  // Pretty print with indent of 2
-                std::cout << "========================\n\n";
+            }
+            
+            if (serverThread.joinable()) {
+                serverThread.join();
             }
         }
-    });
-        inputThread.join();
-        serverThread.join();
     }
     try {
         setupSignalHandlers(io_context);

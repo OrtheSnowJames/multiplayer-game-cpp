@@ -19,6 +19,9 @@ using SocketHandle = SOCKET;
 #else
 using SocketHandle = int;
 #endif
+#ifdef __APPLE__ && __MOBILE__
+#include "libs/KeyboardHelper.h"
+#endif
 
 using namespace std;
 using namespace boost::asio;
@@ -447,7 +450,10 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 std::cout << "Room transition complete. Movement enabled in " << roomName << std::endl;
                             }
                         }
-
+                        if (messageJson.contains("quitGame")) {
+                            gameRunning = false;
+                            std::cout << "Game quit requested" << std::endl;
+                        }
                         if (messageJson.contains("updatePosition")) {
                             auto& updateData = messageJson["updatePosition"];
                             int socketId = updateData["socket"].get<int>();
@@ -552,6 +558,45 @@ void debugInputThread() {
             debugRequested = true;
         }
     }
+}
+
+// Add this struct with your other structs (near Button struct)
+struct TextBox {
+    Rectangle bounds;
+    char* text;
+    int textSize;
+    bool isSelected;
+    const char* label;
+};
+
+// Add these functions before client_main()
+void DrawTextBox(TextBox& box) {
+    DrawRectangleRec(box.bounds, box.isSelected ? LIGHTGRAY : WHITE);
+    DrawRectangleLinesEx(box.bounds, 2, BLACK);
+    DrawText(box.text, box.bounds.x + 5, box.bounds.y + 5, 20, BLACK);
+    DrawText(box.label, box.bounds.x, box.bounds.y - 25, 20, BLACK);
+}
+
+bool HandleTextBoxInput(TextBox& box) {
+    #ifdef __APPLE__ && __MOBILE__
+        ShowKeyboard();
+    #endif
+    bool changed = false;
+    int key = GetCharPressed();
+    while (key > 0) {
+        if ((key >= 32) && (key <= 125) && (strlen(box.text) < box.textSize - 1)) {
+            box.text[strlen(box.text)] = (char)key;
+            box.text[strlen(box.text) + 1] = '\0';
+            changed = true;
+        }
+        key = GetCharPressed();
+    }
+    
+    if (IsKeyPressed(KEY_BACKSPACE) && strlen(box.text) > 0) {
+        box.text[strlen(box.text) - 1] = '\0';
+        changed = true;
+    }
+    return changed;
 }
 
 int client_main() {
@@ -761,39 +806,61 @@ int client_main() {
         try {
             io_context io_context;
             tcp::socket socket(io_context);
-            try {
-                std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
-                if (ip.find(":") != std::string::npos) {
-                    // Strip port if accidentally included in IP
-                    ip = ip.substr(0, ip.find(":"));
-                }
-                std::cout << "Trying to connect to " << ip << " on port " << port << std::endl;
-                tcp::endpoint endpoint(ip::address::from_string(ip), port);
-                // ... rest of connection code
-                boost::system::error_code ec;
-                int retryCount = 5;
-                while (retryCount > 0) {
+            bool reconnecting = false;
+            
+            TextBox ipBox = {
+                {static_cast<float>(screenWidth)/2 - 100.0f, static_cast<float>(screenHeight)/2 - 50.0f, 200.0f, 30.0f},
+                new char[256]{0},
+                256,
+                false,
+                "Server IP:"
+            };
+            TextBox portBox = {
+                {static_cast<float>(screenWidth)/2 - 100.0f, static_cast<float>(screenHeight)/2 + 50.0f, 200.0f, 30.0f},
+                new char[256]{0},
+                256,
+                false,
+                "Port:"
+            };
+            
+            Button reconnectButton = {{static_cast<float>(screenWidth)/2 - 100.0f, static_cast<float>(screenHeight)/2 + 120.0f, 200.0f, 40.0f}, "Reconnect", false};
+
+            // Get initial values
+            std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
+            if (ip.find(":") != std::string::npos) {
+                ip = ip.substr(0, ip.find(":"));
+            }
+            strncpy(ipBox.text, ip.c_str(), 255);
+            strncpy(portBox.text, std::to_string(port).c_str(), 255);
+
+            auto attemptConnection = [&]() -> bool {
+                try {
+                    if (socket.is_open()) socket.close();
+                    socket = tcp::socket(io_context);
+                    ip = std::string(ipBox.text);
+                    port = std::stoi(std::string(portBox.text));
+                    
+                    std::cout << "Trying to connect to " << ip << " on port " << port << std::endl;
+                    tcp::endpoint endpoint(ip::address::from_string(ip), port);
+                    
+                    boost::system::error_code ec;
                     socket.connect(endpoint, ec);
-                    if (!ec) {
-                        break;
+                    if (ec) {
+                        std::cerr << "Failed to connect: " << ec.message() << std::endl;
+                        return false;
                     }
-                    std::cerr << "Failed to connect: " << ec.message() << ". Retrying in 5 seconds..." << std::endl;
-                    logToFile("Failed to connect: " + ec.message() + ". Retrying in 5 seconds...");
-                    std::this_thread::sleep_for(std::chrono::seconds(5));
-                    retryCount--;
+                    
+                    std::cout << "Connected to server" << std::endl;
+                    return true;
+                } catch (const std::exception& e) {
+                    std::cerr << "Connection attempt failed: " << e.what() << std::endl;
+                    return false;
                 }
-                if (ec) {
-                    std::cerr << "Failed to connect after retries: " << ec.message() << std::endl;
-                    logToFile("Failed to connect after retries: " + ec.message());
-                    return -1;
-                }
-                std::cout << "Connected to server" << std::endl;
-            } catch (const std::exception& e) {
-                logToFile(std::string("ERROR: ") + e.what());
-                std::cerr << "Exception: " << e.what() << std::endl;
-                CloseWindow();
-                WindowsOpen = WindowsOpen - 1;
-                return -1;
+            };
+
+            // Initial connection attempt
+            if (!attemptConnection()) {
+                reconnecting = true;
             }
 
             boost::asio::streambuf buffer;
@@ -814,6 +881,58 @@ int client_main() {
             json localPlayerInterpolatedPos = {};
             personalSpaceBubble bubble;
             while (!WindowShouldClose() && gameRunning) {
+                if (!socket.is_open() || reconnecting) {
+                    BeginDrawing();
+                    ClearBackground(RAYWHITE);
+                    
+                    Vector2 mousePoint = GetMousePosition();
+                    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                        ipBox.isSelected = CheckCollisionPointRec(mousePoint, ipBox.bounds);
+                        portBox.isSelected = CheckCollisionPointRec(mousePoint, portBox.bounds);
+                        if (ipBox.isSelected == false && portBox.isSelected == false) {
+                            #ifdef __APPLE__ && __MOBILE__
+                            HideKeyboard();
+                            #endif
+                        }
+                    }
+                    
+                    if (ipBox.isSelected) HandleTextBoxInput(ipBox);
+                    #ifdef __APPLE__ && __MOBILE__
+                    else HideKeyboard();
+                    #endif
+                    if (portBox.isSelected) HandleTextBoxInput(portBox);
+                    #ifdef __APPLE__ && __MOBILE__
+                    else HideKeyboard();
+                    #endif
+                    
+                    DrawTextBox(ipBox);
+                    DrawTextBox(portBox);
+                    DrawButton(reconnectButton);
+                    
+                    DrawText("Connection lost. Please enter server details:", 
+                            screenWidth/2 - 200, screenHeight/2 - 100, 20, BLACK);
+                    
+                    if (IsButtonPressed(reconnectButton, mousePoint)) {
+                        if (attemptConnection()) {
+                            reconnecting = false;
+                            // Reset game state
+                            initGame = false;
+                            initGameFully = false;
+                            localPlayerSet = false;
+                            
+                            // Restart async read
+                            boost::asio::async_read_until(socket, buffer, "\n",
+                                [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                                    handleRead(ec, bytes_transferred, buffer, localPlayer, 
+                                             initGameFully, gameRunning, socket, localPlayerSet);
+                                });
+                        }
+                    }
+                    
+                    EndDrawing();
+                    continue;
+                }
+
                 // Run io_context to process async operations
                 boost::system::error_code ec;
                 io_context.poll_one(ec);
@@ -847,6 +966,8 @@ int client_main() {
                 if (!localPlayerSet || !initGameFully) {
                     DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
                     DrawText("Try reconnecting if you've been here for a while", 40, 40, 20, BLACK);
+                    DrawText("If you're stuck, you probably got kicked, just tell the server owner to restart the server", 40, 70, 20, BLACK);
+                    DrawText("If you're still stuck, just report on github issues", 40, 100, 20, BLACK);
                     EndDrawing();
                     continue;  // Skip rest of loop until initialized
                 }

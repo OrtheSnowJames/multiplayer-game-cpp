@@ -411,3 +411,164 @@ Server started on 10.0.0.103:5767
 Server started on 10.0.0.103:5767
 [INFO] Sat Nov 30 11:23:00 2024
 Server started on 10.0.0.103:5767
+[INFO] Sat Dec  7 08:07:34 2024
+Server started on 192.168.68.83:5767
+2024-12-07 08:11:52 [ERROR] ERROR: write: Bad file descriptor [system:9]
+[INFO] Sat Dec  7 08:13:57 2024
+Server started on 192.168.68.83:5767
+[ERROR] Sat Dec  7 08:15:07 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:07 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:07 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:07 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:08 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:08 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:08 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:10 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:10 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:13 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:13 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:13 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:14 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:14 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:14 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:14 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:14 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:14 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:15 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:15 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:15 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:15 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:15 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:15 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:16 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:16 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:16 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:20 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:20 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:20 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:20 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:20 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:20 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:21 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:21 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:21 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:21 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:21 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:21 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:22 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:22 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:22 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:22 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:22 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:15:23 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[INFO] Sat Dec  7 08:23:17 2024
+Server started on 192.168.68.83:5767
+[ERROR] Sat Dec  7 08:23:36 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:36 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:36 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:37 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:37 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:37 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:37 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:37 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:37 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:38 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:38 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:38 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:38 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:38 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:38 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:39 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:39 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:42 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:43 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:43 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:43 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:46 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:46 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:46 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:47 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:47 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:48 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Sat Dec  7 08:23:48 2024
+Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[INFO] Sat Dec  7 08:24:00 2024
+Server started on 192.168.68.83:5767
+2024-12-07 08:24:47 [ERROR] ERROR: write: Bad file descriptor [system:9]
+[INFO] Sat Dec  7 08:26:44 2024
+Server started on 192.168.68.83:5767
+2024-12-07 08:33:37 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-12-07 08:33:42 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
+2024-12-07 08:33:47 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
