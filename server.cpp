@@ -66,6 +66,13 @@ json game = {
             {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 60}, {"objID", 3}}
         })},
         {"enemies", {}}
+    }},
+    {"room2", {
+        {"players", {}},
+        {"objects", json::array({
+            {{"x", 410}, {"y", 0}, {"width", 93}, {"height", 286}, {"objID", 4}}
+        })},
+        {"enemies", {}}
     }}
 };
 
@@ -248,6 +255,7 @@ void eraseUser(int id) {
     }
 }
 
+
 void broadcastMessage(const json& message) {
     std::lock_guard<std::mutex> lock(game_mutex); // Ensure thread-safe access
     std::string compact = message.dump() + "\n";
@@ -387,7 +395,8 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                 
                 // Update player's room number BEFORE switching rooms
                 player["room"] = messageJson["room"].get<int>();
-                
+                if (player["room"] == 1) {player["x"] = 90; player["y"] = 90;}
+                else {player["x"] = 100; player["y"] = 100;}
                 // Ensure room exists
                 if (!game.contains(newRoomName)) {
                     game[newRoomName] = {
@@ -542,20 +551,91 @@ std::string getLocalIPAddress() {
     return "127.0.0.1";  // Fallback to localhost
 }
 
+std::string generateRandomName() {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+    int len = 8; // Length of the random name
+    std::string name;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, sizeof(alphanum) - 2);
+    for (int i = 0; i < len; ++i) {
+        name += alphanum[dis(gen)];
+    }
+    return name;
+}
+
 void startServer(int port) {
-    std::string localIP = getLocalIPAddress();
-    tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
-    acceptConnections(acceptor);
-    std::cout << "Server started on " << localIP << ":" << port << std::endl;
-    logToFile("Server started on " + localIP + ":" + std::to_string(port), INFO);
-    // Don't detach, let it run in the main thread
-    io_context.run();
+    try {
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+
+        // Function to start accepting connections
+        std::function<void()> do_accept;
+        do_accept = [&]() {
+            acceptor.async_accept([&](boost::system::error_code ec, tcp::socket socket) {
+                if (!ec) {
+                    // Handle new connection
+                    auto socket_ptr = std::make_shared<tcp::socket>(std::move(socket));
+                    {
+                        std::lock_guard<std::mutex> lock(socket_mutex);
+                        connected_sockets.push_back(socket_ptr);
+                    }
+
+                    // Create new player
+                    json newPlayer;
+                    newPlayer["name"] = generateRandomName();
+                    newPlayer["socket"] = socket_ptr->native_handle();
+                    newPlayer["x"] = 100;  // Starting position
+                    newPlayer["y"] = 100;
+                    newPlayer["width"] = 64.0f;
+                    newPlayer["height"] = 64.0f;
+                    newPlayer["spriteState"] = 0;
+                    newPlayer["room"] = 1;
+
+                    // Add newPlayer to game state
+                    {
+                        std::lock_guard<std::mutex> lock(game_mutex);
+                        game["room1"]["players"].push_back(newPlayer);
+                    }
+
+                    // Send "yourPlayer" message to client
+                    json yourPlayerMessage = {{"yourPlayer", newPlayer}};
+                    boost::asio::async_write(*socket_ptr, boost::asio::buffer(yourPlayerMessage.dump() + "\n"),
+                        [socket_ptr](boost::system::error_code ec, std::size_t /*length*/) {
+                            if (ec) {
+                                // Handle write error
+                                std::cerr << "Error sending 'yourPlayer' message: " << ec.message() << std::endl;
+                            }
+                        });
+
+                    // Start reading from client
+                    startReading(socket_ptr);
+
+                    // Continue accepting connections
+                    do_accept();
+                } else {
+                    // Handle accept error
+                    std::cerr << "Accept error: " << ec.message() << std::endl;
+                }
+            });
+        };
+
+        do_accept();
+
+        io_context.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Server exception: " << e.what() << std::endl;
+    }
 }
 
 int nextId = 0;
 int getNextId() {
     return ++nextId;
 }
+
+
 
 void on_message(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr msg) {
     try {

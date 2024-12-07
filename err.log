@@ -572,3 +572,11 @@ Server started on 192.168.68.83:5767
 2024-12-07 08:33:37 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
 2024-12-07 08:33:42 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
 2024-12-07 08:33:47 [ERROR] Failed to connect: Connection refused. Retrying in 5 seconds...
+[ERROR] Sat Dec  7 12:08:51 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[ERROR] Sat Dec  7 12:08:51 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[ERROR] Sat Dec  7 15:34:17 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
+[ERROR] Sat Dec  7 15:37:37 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null

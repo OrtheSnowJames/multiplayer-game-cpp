@@ -19,7 +19,7 @@ using SocketHandle = SOCKET;
 #else
 using SocketHandle = int;
 #endif
-#ifdef __APPLE__ && __MOBILE__
+#if defined(__APPLE__) && defined(__MOBILE__)
 #include "libs/KeyboardHelper.h"
 #endif
 
@@ -578,7 +578,7 @@ void DrawTextBox(TextBox& box) {
 }
 
 bool HandleTextBoxInput(TextBox& box) {
-    #ifdef __APPLE__ && __MOBILE__
+    #if defined(__APPLE__) && defined(__MOBILE__)
         ShowKeyboard();
     #endif
     bool changed = false;
@@ -863,10 +863,29 @@ int client_main() {
                 reconnecting = true;
             }
 
+            if (!attemptConnection()) {
+                reconnecting = true;
+            }
+
             boost::asio::streambuf buffer;
-            bool initGame = false;
             bool initGameFully = false;
-            bool localPlayerSet = false;  //new flag to track if local player is set
+            json localPlayer;
+            bool localPlayerSet = false;
+
+            boost::asio::async_read_until(socket, buffer, "\n",
+                std::bind(&handleRead, std::placeholders::_1, std::placeholders::_2,
+                          std::ref(buffer), std::ref(localPlayer), std::ref(initGameFully),
+                          std::ref(gameRunning), std::ref(socket), std::ref(localPlayerSet))
+            );
+
+            // Run io_context in a separate thread
+            std::thread ioThread([&]() {
+                io_context.run();
+            });
+
+            bool initGame = false;
+            initGameFully = false;
+            localPlayerSet = false;  //new flag to track if local player is set
             
             // Timer for sending updates
             auto lastSendTime = std::chrono::steady_clock::now();
@@ -890,18 +909,18 @@ int client_main() {
                         ipBox.isSelected = CheckCollisionPointRec(mousePoint, ipBox.bounds);
                         portBox.isSelected = CheckCollisionPointRec(mousePoint, portBox.bounds);
                         if (ipBox.isSelected == false && portBox.isSelected == false) {
-                            #ifdef __APPLE__ && __MOBILE__
+                            #if defined(__APPLE__) && defined(__MOBILE__)
                             HideKeyboard();
                             #endif
                         }
                     }
                     
                     if (ipBox.isSelected) HandleTextBoxInput(ipBox);
-                    #ifdef __APPLE__ && __MOBILE__
+                    #if defined(__APPLE__) && defined(__MOBILE__)
                     else HideKeyboard();
                     #endif
                     if (portBox.isSelected) HandleTextBoxInput(portBox);
-                    #ifdef __APPLE__ && __MOBILE__
+                    #if defined(__APPLE__) && defined(__MOBILE__)
                     else HideKeyboard();
                     #endif
                     

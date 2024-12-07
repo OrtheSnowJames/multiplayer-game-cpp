@@ -33,53 +33,85 @@ set(TEST_CLIENT_SOURCES
 )
 
 # Create executables
-if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET server)
-    message(FATAL_ERROR "Server compilation is not supported on iOS")
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Only build client for iOS
+    add_executable(client ${CLIENT_SOURCES})
+    
+    # iOS-specific settings
+    set_target_properties(client PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.yourdomain.client"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+        XCODE_ATTRIBUTE_ENABLE_BITCODE NO
+        XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH YES
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"   # iPhone and iPad
+        XCODE_ATTRIBUTE_VALID_ARCHS "arm64"
+    )
+    
+    # iOS-specific definitions and libraries
+    target_compile_definitions(client PRIVATE __MOBILE__)
+    target_sources(client PRIVATE KeyboardHelper.m)
+    
+    # iOS frameworks
+    target_link_libraries(client PRIVATE
+        "-framework UIKit"
+        "-framework Foundation"
+        "-framework OpenGLES"
+        "-framework CoreGraphics"
+        "-framework QuartzCore"
+        "-framework CoreText"
+        "-framework CoreFoundation"
+        "-framework AudioToolbox"
+        "-framework AVFoundation"
+        "-framework CoreAudio"
+        "-framework CoreMIDI"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+    )
 else()
+    # Build all executables for non-iOS platforms
     add_executable(server ${SERVER_SOURCES})
+    add_executable(client ${CLIENT_SOURCES})
+    add_executable(test_client ${TEST_CLIENT_SOURCES})
 endif()
-
-add_executable(client ${CLIENT_SOURCES})
-add_executable(test_client ${TEST_CLIENT_SOURCES})
 
 # Handle Emscripten-specific flags
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_GLFW=3 -s ALLOW_MEMORY_GROWTH=1 -s WASM=1")
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
-if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    target_compile_definitions(client PRIVATE __MOBILE__)
-    target_sources(client PRIVATE KeyboardHelper.m)
-    target_link_libraries(client PRIVATE "-framework UIKit")
-    target_include_directories(client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs)
-    target_link_libraries(client PRIVATE "-framework Foundation")
-    target_link_libraries(client PRIVATE "-framework OpenGLES")
-    target_link_libraries(client PRIVATE "-framework CoreGraphics")
-    target_link_libraries(client PRIVATE "-framework QuartzCore")
-    target_link_libraries(client PRIVATE "-framework UIKit")
-    target_link_libraries(client PRIVATE "-framework CoreText")
-    target_link_libraries(client PRIVATE "-framework CoreFoundation")
-    target_link_libraries(client PRIVATE "-framework AudioToolbox")
-    target_link_libraries(client PRIVATE "-framework AVFoundation")
-    target_link_libraries(client PRIVATE "-framework CoreAudio")
-    target_link_libraries(client PRIVATE "-framework CoreMIDI")
-    target_link_libraries(client PRIVATE "-framework CoreMedia")
-    target_link_libraries(client PRIVATE "-framework CoreVideo")
+
+# Modify library linking section to be platform-aware
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Link libraries for server
+    target_link_libraries(server PRIVATE
+        Boost::system
+        Boost::thread
+        Boost::filesystem
+        Boost::regex
+        Boost::chrono
+        Boost::date_time
+        nlohmann_json::nlohmann_json
+        raylib
+    )
+
+    # Link libraries for test_client
+    target_link_libraries(test_client PRIVATE
+        Boost::system
+        Boost::thread
+        Boost::filesystem
+        Boost::regex
+        Boost::chrono
+        Boost::date_time
+        nlohmann_json::nlohmann_json
+        raylib
+        GTest::GTest
+        GTest::Main
+    )
 endif()
 
-# Link libraries for server
-target_link_libraries(server PRIVATE
-    Boost::system
-    Boost::thread
-    Boost::filesystem
-    Boost::regex
-    Boost::chrono
-    Boost::date_time
-    nlohmann_json::nlohmann_json
-    raylib
-)
-
-# Link libraries for client
+# Link libraries for client (all platforms)
 target_link_libraries(client PRIVATE
     Boost::system
     Boost::thread
@@ -89,20 +121,6 @@ target_link_libraries(client PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
-)
-
-# Link libraries for test_client
-target_link_libraries(test_client PRIVATE
-    Boost::system
-    Boost::thread
-    Boost::filesystem
-    Boost::regex
-    Boost::chrono
-    Boost::date_time
-    nlohmann_json::nlohmann_json
-    raylib
-    GTest::GTest
-    GTest::Main
 )
 
 # Add system-specific libraries
