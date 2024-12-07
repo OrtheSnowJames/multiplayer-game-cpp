@@ -18,6 +18,25 @@
 #include <websocketpp/config/asio_no_tls.hpp>
 #include <websocketpp/server.hpp>
 
+#ifdef _WIN32
+#include <winsock2.h>
+using SocketHandle = SOCKET;
+#else
+using SocketHandle = int;
+#endif
+
+// Add helper function for socket handle casting
+int castWinsock(boost::asio::ip::tcp::socket& socket) {
+    SocketHandle nativeHandle = socket.native_handle();
+    int intHandle;
+#ifdef _WIN32
+    intHandle = static_cast<int>(reinterpret_cast<intptr_t>(nativeHandle));
+#else
+    intHandle = nativeHandle;
+#endif
+    return intHandle;
+}
+
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
 namespace fs = std::filesystem;
@@ -51,12 +70,7 @@ json game = {
 };
 
 json lookForPlayer(tcp::socket& socket) {
-    int sockID;
-    if (typeid(socket.native_handle()) != typeid(int)) {
-        sockID = static_cast<int>(socket.native_handle());
-    } else {
-        sockID = socket.native_handle();
-    }
+    int sockID = castWinsock(socket);
     
     for (auto& room : game.items()) {  // Iterate through rooms
         if (room.value().contains("players")) {
@@ -72,12 +86,7 @@ json lookForPlayer(tcp::socket& socket) {
 }
 
 std::string lookForRoom(tcp::socket& socket) {
-    int sockID;
-    if (typeid(socket.native_handle()) != typeid(int)) {
-        sockID = static_cast<int>(socket.native_handle());
-    } else {
-        sockID = socket.native_handle();
-    }
+    int sockID = castWinsock(socket);
     
     for (auto& room : game.items()) {  // Iterate through rooms
         if (room.value().contains("players")) {
@@ -98,6 +107,15 @@ std::mutex socket_mutex;
 std::atomic<bool> shouldClose{false};
 
 enum LogLevel { INFO, ERROR, DEBUG };
+
+void castwinsock(tcp::socket& socket) {
+    int sockID;
+    if (typeid(socket.native_handle()) != typeid(int)) {
+        sockID = static_cast<int>(socket.native_handle());
+    } else {
+        sockID = socket.native_handle();
+    }
+}
 
 void logToFile(const std::string& message, LogLevel level = INFO) {
     static const std::map<LogLevel, std::string> levelNames = {
@@ -164,6 +182,33 @@ json createUser(const std::string& name, int id) {
     for (auto& o : game["room1"]["objects"]) {
         if (checkCollision(newPlayer, o)) {
             newPlayer = createUser(name, id);  // recreate player if colliding
+        }
+    }
+    return newPlayer;
+}
+
+json createUser(const std::string& name, tcp::socket& socket) {
+    int fid = castWinsock(socket);
+    
+    std::random_device rd;
+    json newPlayer = {
+        {"name", name},
+        {"x", rd() % 600},
+        {"y", rd() % 300},
+        {"speed", 5},
+        {"score", 0},
+        {"width", 64}, 
+        {"height", 64},
+        {"inventory", {{"shields", 0}, {"bananas", 0}}},
+        {"socket", fid},
+        {"spriteState", 1},
+        {"skin", 1},
+        {"local", false},
+        {"room", 1}
+    };
+    for (auto& o : game["room1"]["objects"]) {
+        if (checkCollision(newPlayer, o)) {
+            newPlayer = createUser(name, socket);  // recreate player if colliding
         }
     }
     return newPlayer;
@@ -240,36 +285,36 @@ bool findPlayer(std::string name) {
 
 void switchRoom(json& player, const std::string& newRoom) {
     std::lock_guard<std::mutex> lock(game_mutex);
+    
+    std::cout << "Switching room for player: " << player["name"] << std::endl;
+    std::cout << "Target room: " << newRoom << std::endl;
+    
+    // Remove player from all rooms first
     for (auto& room : game.items()) {
         if (room.value().contains("players")) {
             auto& players = room.value()["players"];
-            players.erase(
-                std::remove_if(players.begin(), players.end(),
-                    [&player](const json& p) {
-                        return p["socket"] == player["socket"];
-                    }
-                ),
-                players.end()
-            );
+            auto it = std::remove_if(players.begin(), players.end(),
+                [&player](const json& p) {
+                    return p["socket"] == player["socket"];
+                });
+            players.erase(it, players.end());
         }
     }
-    player["room"] = std::stoi(newRoom.substr(4));
+    
+    // Add to new room
     game[newRoom]["players"].push_back(player);
-    json messageS = {{"getRoom", game[newRoom]}, {"room", newRoom}};
-    boost::asio::write(*connected_sockets[player["socket"].get<int>()], boost::asio::buffer(messageS.dump() + "\n"));
-    json messageA = player;
-    broadcastMessage(messageA);
+    
+    std::cout << "Player count in new room: " << game[newRoom]["players"].size() << std::endl;
+    
+    // Broadcast the change to all players
+    json updateMessage = {{"getGame", game}};
+    broadcastMessage(updateMessage);
 }
 
 void handleMessage(const std::string& message, tcp::socket& socket) {
     try {
         json messageJson = json::parse(message);
-        int sockID;
-        if (typeid(socket.native_handle()) != typeid(int)) {
-            sockID = static_cast<int>(socket.native_handle());
-        } else {
-            sockID = socket.native_handle();
-        }
+        int sockID = castWinsock(socket);
         
         // Initial connection - only time we send full game state
         if (messageJson.contains("currentName")) {
@@ -290,17 +335,14 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
             
             game["room1"]["players"].push_back(newPlayer);
             
-            // Send only local player data first
             json localResponse = newPlayer;
             boost::asio::write(socket, boost::asio::buffer(localResponse.dump() + "\n"));
 
-            // Then send full game state once
             json gameUpdate = {{"getGame", game}};
             boost::asio::write(socket, boost::asio::buffer(gameUpdate.dump() + "\n"));
             return;
         }
 
-        // Modify handleMessage for quit game
         if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
             try {
                 int socketId = socket.native_handle();
@@ -339,6 +381,43 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                 }
             }
 
+            if (messageJson.contains("room") && lookForPlayer(socket)["room"].get<int>() != messageJson["room"].get<int>()) {
+                json player = lookForPlayer(socket);
+                std::string newRoomName = "room" + std::to_string(messageJson["room"].get<int>());
+                
+                // Update player's room number BEFORE switching rooms
+                player["room"] = messageJson["room"].get<int>();
+                
+                // Ensure room exists
+                if (!game.contains(newRoomName)) {
+                    game[newRoomName] = {
+                        {"players", json::array()},
+                        {"objects", json::array()},
+                        {"enemies", json::array()}
+                    };
+                }
+                
+                // Remove from old room and add to new room
+                std::string oldRoomName = "room" + std::to_string(lookForPlayer(socket)["room"].get<int>());
+                auto& oldRoomPlayers = game[oldRoomName]["players"];
+                oldRoomPlayers.erase(
+                    std::remove_if(oldRoomPlayers.begin(), oldRoomPlayers.end(),
+                        [&socket](const json& p) { 
+                            return p["socket"] == castWinsock(socket); 
+                        }
+                    ),
+                    oldRoomPlayers.end()
+                );
+                
+                // Add to new room
+                game[newRoomName]["players"].push_back(player);
+                
+                // Broadcast the updated game state
+                json gameUpdate = {{"getGame", game}};
+                broadcastMessage(gameUpdate);
+                changed = true;
+            }
+
             if (changed) {
                 bool crouched = (spriteState == 5);
                 int widthToSet = crouched ? 48 : 32;  // Use consistent sizes
@@ -355,6 +434,21 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                     }}
                 };
                 broadcastMessage(positionUpdate);
+            }
+        }
+        if (messageJson.contains("playerCount")) {
+            std::string roomName = lookForRoom(socket);
+            int roomint = std::stoi(roomName.substr(4));
+            int numPlayers = 0;
+            json player = lookForPlayer(socket);
+            for (auto& p : game[roomName]["players"]) {
+                numPlayers++;
+            }
+            if (roomint != messageJson["room"].get<int>()) {
+                switchRoom(player, roomName);
+            }
+            if (numPlayers != messageJson["playerCount"].get<int>()) {
+                switchRoom(player, roomName);
             }
         }
         // Only send full game state when explicitly requested
@@ -514,7 +608,7 @@ int main() {
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
     int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
     int port = getEnvVar<int>("PORT", 5767);
-    bool cli = getEnvVar<bool>("CLI", false);
+    bool cli = getEnvVar<bool>("CLI", true);
     bool gameRunning = true;
     fs::path root = fs::current_path();
     fs::path assets = "assets"; // Define the assets path
@@ -532,55 +626,79 @@ int main() {
         
         // Modify the input thread to check for window close
         boost::asio::io_context* io_context_ptr = &io_context;
-        std::thread inputThread([&gameRunning] {
-            std::string input;
-            while (gameRunning) {
-                std::getline(std::cin, input);
-                if (input == "quit" || input == "^C") {
-                    gameRunning = false;
-                } else if (input == "kick") {
-                    bool waitForKick = true;
-                    std::cout << "Enter id to kick:";
-                    // Fix: Use get<int> for socket IDs
-                    for (auto& p : game["room1"]["players"]) {
-                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
-                    }
-                    for (auto& p : game["room2"]["players"]) {
-                        std::cout << p["socket"].get<int>() << " - " << p["name"].get<std::string>() << std::endl;
-                    }
-                    std::thread kickThread([&waitForKick, &gameRunning] {
-                        std::string input;
-                        while (waitForKick) {
-                            std::getline(std::cin, input);
-                            if (input == "quit") {
-                                gameRunning = false;
-                                io_context.stop();
-                            } else if (!input.empty()) {
-                                try {
-                                    int kickId = std::stoi(input);
-                                    for (auto& room : game.items()) {  // Iterate through all rooms
-                                        if (room.value().contains("players")) {
-                                            auto& players = room.value()["players"];
-                                            players.erase(
-                                                std::remove_if(players.begin(), players.end(),
-                                                    [kickId](const json& p) {
-                                                        return p["socket"].get<int>() == kickId;
-                                                    }
-                                                ),
-                                                players.end()
-                                            );
-                                        }
+                std::thread inputThread([&gameRunning] {
+                std::string input;
+                while (gameRunning) {
+                    std::getline(std::cin, input);
+                    if (input == "quit" || input == "^C") {
+                        gameRunning = false;
+                        json quitMessage = {{"quitGame", true}};
+                        broadcastMessage(quitMessage.dump());
+                        io_context.stop();
+                        break;
+                    } else if (input == "kick") {
+                        std::cout << "Current players:\n";
+                        {
+                            std::lock_guard<std::mutex> lock(game_mutex);
+                            // Show players from all rooms
+                            for (const auto& room : game.items()) {
+                                if (room.value().contains("players")) {
+                                    for (const auto& player : room.value()["players"]) {
+                                        std::cout << player["socket"].get<int>() << " - " 
+                                                << player["name"].get<std::string>() << std::endl;
                                     }
-                                    waitForKick = false;
-                                } catch (const std::exception& e) {
-                                    std::cout << "Invalid ID format" << std::endl;
+                                }
+                                else {
+                                    std::cout << "No players in room " << room.key() << std::endl;
                                 }
                             }
                         }
-                    });
+        
+                        std::cout << "Enter player ID to kick: ";
+                        std::string kickInput;
+                        std::getline(std::cin, kickInput);
+        
+                        try {
+                            int kickId = std::stoi(kickInput);
+                            {
+                                std::lock_guard<std::mutex> lock(game_mutex);
+                                // Remove player from all rooms
+                                for (auto& room : game.items()) {
+                                    if (room.value().contains("players")) {
+                                        auto& players = room.value()["players"];
+                                        auto it = std::remove_if(players.begin(), players.end(),
+                                            [kickId](const json& p) {
+                                                return p["socket"].get<int>() == kickId;
+                                            });
+                                        if (it != players.end()) {
+                                            json kickedPlayer = *it;
+                                            int sockid = kickedPlayer["socket"].get<int>();
+                                            for (auto& p : connected_sockets) {
+                                                if (p->native_handle() == sockid) {
+                                                    boost::asio::write(*p, boost::asio::buffer("quitGame\n"));
+                                                    break;
+                                                }
+                                            }
+                                            players.erase(it, players.end());
+                                            // Broadcast updated game state
+                                            json gameUpdate = {{"getGame", game}};
+                                            broadcastMessage(gameUpdate);
+                                            std::cout << "Player kicked successfully\n";
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (const std::exception& e) {
+                            std::cout << "Invalid player ID\n";
+                        }
+                    } else if (input == "game") {  // Add new command
+                        std::lock_guard<std::mutex> lock(game_mutex);
+                        std::cout << "\n=== CURRENT GAME STATE ===\n";
+                        std::cout << game.dump(2) << std::endl;  // Pretty print with indent of 2
+                        std::cout << "========================\n\n";
+                    }
                 }
-            }
-        });
+            });
             if (fs::exists(bg1ImgPath)) {
         bg1Img = LoadTexture(bg1ImgPath.string().c_str());
         if (bg1Img.id == 0) {
@@ -713,6 +831,11 @@ int main() {
                 } catch (const std::exception& e) {
                     std::cout << "Invalid player ID\n";
                 }
+            } else if (input == "game") {  // Add new command
+                std::lock_guard<std::mutex> lock(game_mutex);
+                std::cout << "\n=== CURRENT GAME STATE ===\n";
+                std::cout << game.dump(2) << std::endl;  // Pretty print with indent of 2
+                std::cout << "========================\n\n";
             }
         }
     });

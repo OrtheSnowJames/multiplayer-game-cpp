@@ -13,6 +13,13 @@
 #include "coolfunctions.hpp"
 #include "raylib.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+using SocketHandle = SOCKET;
+#else
+using SocketHandle = int;
+#endif
+
 using namespace std;
 using namespace boost::asio;
 using ip::tcp;
@@ -39,8 +46,12 @@ json checklist = {
     {"y", 0},
     {"currentGame", ""},
     {"currentPlayer", ""},
-    {"spriteState", 1}  // Add default sprite state
+    {"spriteState", 1},
+    {"room", 1},
+    {"playerCount", 0}
 };
+
+json canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};
 
 bool checkCollision(const json& object1, const json& object2) {
     if (!object1.contains("x") || !object1.contains("y") || 
@@ -122,6 +133,50 @@ bool checkWallCollision(const json& object1, const json& object2, int& wall) {
     return true; // Collision detected
 }
 
+// Personal Space Bubble Struct
+struct personalSpaceBubble {
+    //10 inch increments in all directions
+    int x;
+    int y;
+    int width;
+    int height;
+    json playerslist;
+    json construct_bubble() {
+        return {
+            {"x", x-10},
+            {"y", y-10},
+            {"width", width+10},
+            {"height", height+10}
+        };
+    }
+    json get(){ return construct_bubble(); }
+    void set_bubble(int x_, int y_, int width_, int height_) {
+        x = x_;
+        y = y_;
+        width = width_;
+        height = height_;
+        //you'll need to call constructBubble() to get the json object
+    }
+    void add_player(json player) {
+        playerslist.push_back(player);
+    }
+    void clear_players() {
+        playerslist.clear();
+    }
+    bool check_burst() {
+        json bubbleJson = construct_bubble();
+        for (auto& p : playerslist.items()) {
+            if (checkCollision(bubbleJson, p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool check_specific_burst(json player) {
+        json bubbleJson = construct_bubble();
+        return checkCollision(bubbleJson, player);
+    }
+};
 // Modify Button struct
 struct Button {
     Rectangle bounds;
@@ -199,7 +254,7 @@ std::map<std::string, bool> DetectKeyPress() {
     keyStates["shift"] = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
     return keyStates;
 }
-
+std::string localRoomName;
 Texture2D cropTextureFunc(Texture2D& sourceTexture, int x, int y, int width, int height) {
     Rectangle cropRect = { static_cast<float>(x), static_cast<float>(y), static_cast<float>(width), static_cast<float>(height) };
     Image croppedImage = ImageFromImage(LoadImageFromTexture(sourceTexture), cropRect);
@@ -218,10 +273,10 @@ void restartApplication(int & WindowsOpenInt) {
     }
     
     // Execute the run script again
-    std::string command = "bash ./run.sh";
+    std::string command = "bash ./runClient.sh";
     
     // Use exec to replace current process
-    if (execl("/bin/bash", "bash", "./run.sh", nullptr) == -1) {
+    if (execl("/bin/bash", "bash", "./runClient.sh", nullptr) == -1) {
         std::cerr << "Failed to restart: " << strerror(errno) << std::endl;
         logToFile("Failed to restart: " + std::string(strerror(errno)), ERROR, "err.log");
         exit(1);
@@ -254,6 +309,7 @@ struct PlayerState {
     int spriteState = 0;
     std::string name;
     int socketId;
+    int room = 1;  // Add room tracking, default to room1
     
     void update(float dt) {
         if (interpolation < 1.0f) {
@@ -349,13 +405,49 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                     playerStates[socketId].name = player["name"].get<std::string>();
                                     playerStates[socketId].socketId = socketId;
                                     playerStates[socketId].spriteState = player["spriteState"].get<int>();
+                                    playerStates[socketId].room = player["room"].get<int>();  // Add room update
                                 }
                             }
                         }
+                        
                         if (messageJson.contains("getRoom")) {
                             std::string roomName = messageJson["room"].get<std::string>();
                             game[roomName] = messageJson["getRoom"];
+
+                            if (localPlayer["socket"] == socket.native_handle()) {
+                                localPlayer["room"] = std::stoi(roomName.substr(4));
+                                localRoomName = roomName;
+
+                                // Clear existing player states for the new room
+                                playerStates.clear();
+
+                                // Initialize player states for all players in the new room
+                                for (const auto& player : game[roomName]["players"]) {
+                                    int socketId = player["socket"].get<int>();
+                                    playerStates[socketId] = PlayerState();
+                                    playerStates[socketId].target = Position(
+                                        player["x"].get<float>(),
+                                        player["y"].get<float>(),
+                                        64.0f,
+                                        64.0f
+                                    );
+                                    playerStates[socketId].current = playerStates[socketId].target;
+                                    playerStates[socketId].name = player["name"].get<std::string>();
+                                    playerStates[socketId].socketId = socketId;
+                                    playerStates[socketId].spriteState = player["spriteState"].get<int>();
+                                    playerStates[socketId].room = player["room"].get<int>();
+                                }
+
+                                // Reset movement flags and ensure room has objects array
+                                canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};
+                                if (!game[roomName].contains("objects")) {
+                                    game[roomName]["objects"] = json::array();
+                                }
+                                
+                                std::cout << "Room transition complete. Movement enabled in " << roomName << std::endl;
+                            }
                         }
+
                         if (messageJson.contains("updatePosition")) {
                             auto& updateData = messageJson["updatePosition"];
                             int socketId = updateData["socket"].get<int>();
@@ -377,315 +469,10 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                             if (updateData.contains("spriteState")) {
                                 playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
                             }
-                        }
-                        if (messageJson.contains("updatePosition")) {
-                            auto& updateData = messageJson["updatePosition"];
-                            int socketId = updateData["socket"].get<int>();
-
-                            if (playerStates.find(socketId) == playerStates.end()) {
-                                playerStates[socketId] = PlayerState();
-                                playerStates[socketId].socketId = socketId;
-                            }
-
-                            // Keep dimensions constant - only scale in rendering
-                            playerStates[socketId].target = Position(
-                                updateData["x"].get<float>(),
-                                updateData["y"].get<float>(),
-                                64.0f,  // Keep constant size
-                                64.0f   // Keep constant size
-                            );
-                            playerStates[socketId].interpolation = 0;
-
-                            if (updateData.contains("spriteState")) {
-                                playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
+                            if (updateData.contains("room")) {
+                                playerStates[socketId].room = updateData["room"].get<int>();
                             }
                         }
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
-                        if (messageJson.contains("updatePosition")) {
-    auto& updateData = messageJson["updatePosition"];
-    int socketId = updateData["socket"].get<int>();
-    
-    if (playerStates.find(socketId) == playerStates.end()) {
-        playerStates[socketId] = PlayerState();
-        playerStates[socketId].socketId = socketId;
-    }
-    
-    // Keep dimensions constant - only scale in rendering
-    playerStates[socketId].target = Position(
-        updateData["x"].get<float>(),
-        updateData["y"].get<float>(),
-        64.0f,  // Keep constant size
-        64.0f   // Keep constant size
-    );
-    playerStates[socketId].interpolation = 0;
-    
-    if (updateData.contains("spriteState")) {
-        playerStates[socketId].spriteState = updateData["spriteState"].get<int>();
-    }
-}
                         break;  // Exit loop after processing valid message
                     } catch (const json::parse_error&) {
                         continue; // Keep reading if JSON is invalid
@@ -745,6 +532,28 @@ void handleStuckState() {
     notsendingugh = true;
 }
 
+int castWinsock(boost::asio::ip::tcp::socket& socket) {
+    SocketHandle nativeHandle = socket.native_handle();
+    int intHandle;
+#ifdef _WIN32
+    intHandle = static_cast<int>(reinterpret_cast<intptr_t>(nativeHandle));
+#else
+    intHandle = nativeHandle;
+#endif
+    return intHandle;
+}
+std::atomic<bool> shouldQuit{false};
+std::atomic<bool> debugRequested{false};
+
+void debugInputThread() {
+    std::string input;
+    while (std::getline(std::cin, input)) {
+        if (input == "game") {
+            debugRequested = true;
+        }
+    }
+}
+
 int client_main() {
     int WindowsOpen = 0;
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
@@ -770,6 +579,7 @@ int client_main() {
         fs::path playerImgPath = root / "assets" / "player.png";
         fs::path compressedPlayerImgPath = root / "assets" / "compressedPlayer.png";
         fs::path bg1ImgPath = root / "assets" / "room1Bg.png";
+        fs::path bg2ImgPath = root / "assets" / "room2Bg.png";
         
         debugImagePath(playerImgPath, "Player Image");
         debugImagePath(compressedPlayerImgPath, "Compressed Player Image");
@@ -794,6 +604,12 @@ int client_main() {
             std::cout << error << std::endl;
         }
 
+        if (!fs::exists(bg2ImgPath)) {
+            std::string error = "Background image not found at: " + bg2ImgPath.string();
+            logToFile(error, WARNING);
+            std::cout << error << std::endl;
+        }
+
         // Load player texture with error checking
         Texture2D playerTexture = LoadTexture(playerImgPath.string().c_str());
         if (playerTexture.id == 0) {
@@ -805,6 +621,7 @@ int client_main() {
 
         // Load background with error checking
         Texture2D room1BgT = {0};
+        Texture2D room2BgT = {0};
         if (fs::exists(bg1ImgPath)) {
             room1BgT = LoadTexture(bg1ImgPath.string().c_str());
             if (room1BgT.id == 0) {
@@ -812,6 +629,15 @@ int client_main() {
                 logToFile(error, WARNING);
             } else {
                 std::cout << "Successfully loaded background texture with ID: " << room1BgT.id << std::endl;
+            }
+        }
+        if (fs::exists(bg2ImgPath)) {
+            room2BgT = LoadTexture(bg2ImgPath.string().c_str());
+            if (room2BgT.id == 0) {
+                std::string error = "Failed to load background texture at: " + bg2ImgPath.string();
+                logToFile(error, WARNING);
+            } else {
+                std::cout << "Successfully loaded background texture with ID: " << room2BgT.id << std::endl;
             }
         }
         debugTexture("Background", room1BgT, bg1ImgPath);
@@ -823,7 +649,6 @@ int client_main() {
             logToFile(error, ERROR);
             throw std::runtime_error(error);
         }
-
         Image room1Bg;
         try {
             room1BgT = LoadTexture(bg1ImgPath.string().c_str());
@@ -838,8 +663,21 @@ int client_main() {
         }
 
         if (playerTexture.id == 0) {
-            throw std::runtime_error("Failed to load player texture");
+            throw std::runtime_error("Failed to load background texture");
         }
+        Image room2Bg;
+        try {
+            room2BgT = LoadTexture(bg2ImgPath.string().c_str());
+            if (room2BgT.id != 0) {
+                room2Bg = LoadImageFromTexture(room2BgT);
+            } else {
+                logToFile("Failed to load background texture, continuing without background", WARNING);
+            }
+        } catch (const std::exception& e) {
+            logToFile("Background image loading failed: " + std::string(e.what()), WARNING);
+            // Continue without background
+        }
+
 
         // crop and load north (bottom right)
         Image croppedImage1 = ImageFromImage(playerImage, (Rectangle){static_cast<float>(playerTexture.width)/2, static_cast<float>(playerTexture.height)/2, static_cast<float>(playerTexture.width)/2, static_cast<float>(playerTexture.height)/2});
@@ -972,12 +810,19 @@ int client_main() {
                 [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
-            json canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};            
             // Main Game Loop
             json localPlayerInterpolatedPos = {};
+            personalSpaceBubble bubble;
             while (!WindowShouldClose() && gameRunning) {
                 // Run io_context to process async operations
-                io_context.poll();
+                boost::system::error_code ec;
+                io_context.poll_one(ec);
+                if (ec) {
+                    std::cerr << "IO Context error: " << ec.message() << std::endl;
+                    logToFile("IO Context error: " + ec.message(), ERROR);
+                    gameRunning = false;
+                    break;
+                };
 
                 // Send initialization message only once at start
                 if (!initGame) {
@@ -1014,25 +859,26 @@ int client_main() {
                 };
                 // Only handle game logic after initialization
                 if (localPlayerSet && initGameFully) {
-                    std::string localRoomName = "room1";  // Default room
-                    int socketHandle;
-                    if (typeid(socket.native_handle()) != typeid(int)) {
-                        socketHandle = static_cast<int>(socket.native_handle());
-                    } else {
-                        socketHandle = socket.native_handle();
-                    }
+                    localRoomName = "room" + std::to_string(localPlayer["room"].get<int>());
+                    int socketHandle = castWinsock(socket);
 
                     for (const auto& room : game.items()) {
                         if (room.value().contains("players")) {
                             for (const auto& player : room.value()["players"]) {
                                 if (player["socket"] == socketHandle) {
-                                    localRoomName = room.key();
+                                    localRoomName = "room" + std::to_string(room.value()["roomID"].get<int>());
                                     break;
                                 }
                             }
                         }
                     }
-    
+                    bool switchr = false;
+                    //Get player count
+                    int playerCount = 0;
+                    for (const auto& player : game[localRoomName]["players"]) {
+                        playerCount++;
+                    }
+                    checklist["playerCount"] = playerCount;
                    // Iterate over objects in the current room
                     if (game.contains(localRoomName) && game[localRoomName].contains("objects")) {
                         // Reset movement flags at the start of each frame
@@ -1041,6 +887,22 @@ int client_main() {
                         canMove["s"] = true;
                         canMove["d"] = true;                    
 
+                        //get players in bubble
+                        bubble.clear_players();
+                        bubble.set_bubble(localPlayerInterpolatedPos["x"].get<float>(), localPlayerInterpolatedPos["y"].get<float>(), localPlayerInterpolatedPos["width"].get<float>(), localPlayerInterpolatedPos["height"].get<float>());
+                        for (const auto& player : game[localRoomName]["players"]) {
+                            if (player["socket"] != socketHandle) {
+                                bubble.add_player(player);
+                            }
+                            if (bubble.check_burst() && bubble.check_specific_burst(player)) {
+                                //add player to objects so no going through
+                                if (player["room"] == localRoomName) {
+                                    json pushbackable = player;
+                                    pushbackable["objID"] = 0;
+                                    game[localRoomName]["objects"].push_back(pushbackable);
+                                }
+                            }
+                        }
                         for (const auto& object : game[localRoomName]["objects"]) {
                             json predictedPos = localPlayerInterpolatedPos;
                             int wall = 0;                   
@@ -1081,6 +943,37 @@ int client_main() {
                                     checklist["x"] = object["x"].get<float>() - localPlayerInterpolatedPos["width"].get<float>(); // Stop at right boundary
                                 }
                             }
+                            //special collisions
+                            if ((object["objID"] == 2 || object["objID"] == 4) && checkCollision(localPlayerInterpolatedPos, object)) {
+                                int newRoom = (object["objID"] == 2) ? 2 : ((object["objID"] == 4) ? 1 : 1);                                
+                                checklist["room"] = newRoom;
+                                checklist["x"] = (newRoom == 1) ? 700 : 100;  // Different spawn points per room
+                                checklist["y"] = (newRoom == 1) ? 300 : 100;
+                                
+                                localPlayer["room"] = newRoom;
+                                localPlayer["x"] = checklist["x"];
+                                localPlayer["y"] = checklist["y"];
+                                
+                                // Force reset movement flags
+                                canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};
+                                notsendingugh = false;
+                                
+                                // Send room change and position update
+                                json roomChangeMessage = {
+                                    {"room", newRoom},
+                                    {"updatePosition", {
+                                        {"x", checklist["x"]},
+                                        {"y", checklist["y"]},
+                                        {"room", newRoom},
+                                        {"socket", localPlayer["socket"]},
+                                        {"spriteState", checklist["spriteState"]}
+                                    }}
+                                };
+                                
+                                boost::asio::write(socket, boost::asio::buffer(roomChangeMessage.dump() + "\n"));
+                                bool send = false;
+                                lastSendTime = std::chrono::steady_clock::now() - sendInterval;
+                            }
                         }
                     }
 
@@ -1095,12 +988,12 @@ int client_main() {
                     // Store previous position
                     int prevX = checklist["x"].get<int>();
                     int prevY = checklist["y"].get<int>();
-
+                    if (switchr) send = true; switchr = false;
                     
                     if (keys["shift"] || IsButtonPressed(buttonShift, mousePoint)) {
                         if (checklist["spriteState"].get<int>() != 5) {
-                            checklist["prevState"] = checklist["spriteState"];  // Store current state
-                            checklist["spriteState"] = 5;  // Crouch state
+                            checklist["prevState"] = checklist["spriteState"]; 
+                            checklist["spriteState"] = 5;  
                             send = true;
                         }
                         moveSpeed = 2;  // Slower while crouched
@@ -1117,8 +1010,8 @@ int client_main() {
                         send = true;
                     }
 
-                    // Normal movement after crouch check
                     if ((keys["w"] || IsButtonPressed(buttonW, mousePoint)) && canMove["w"]) {
+                        std::cout << "W pressed, canMove[w]: " << canMove["w"] << std::endl;
                         checklist["goingup"] = true;
                         checklist["y"] = prevY - moveSpeed;
                         checklist["spriteState"] = 1; // North facing
@@ -1174,6 +1067,11 @@ int client_main() {
 
                     if (keys["q"] || IsButtonPressed(buttonQuit, mousePoint)) {
                         gameRunning = false;
+                        shouldQuit = true;
+                        json quitMessage = {{"quitGame", true}};
+                        boost::asio::write(socket, boost::asio::buffer(quitMessage.dump() + "\n"));
+                        socket.close();
+                        break;
                     }
 
                     // Add bounds checking
@@ -1192,14 +1090,17 @@ int client_main() {
                         previousChecklist = checklist; // Update previous checklist
                     }
                 }
-
+                std::string localRoomName = "room" + std::to_string(localPlayer["room"].get<int>());
                 if (localPlayerSet && initGameFully) {
+                    std::string currentRoom = "room" + std::to_string(localPlayer["room"].get<int>());
                     BeginDrawing();
                     ClearBackground(RAYWHITE);
-
+                    localRoomName = "room" + std::to_string(localPlayer["room"].get<int>());
                     // Draw background if available
-                    if (room1BgT.id != 0) {
+                    if (currentRoom == "room1" && room1BgT.id != 0) {
                         DrawTexture(room1BgT, 0, 0, WHITE);
+                    } else if (currentRoom == "room2" && room2BgT.id != 0) {
+                        DrawTexture(room2BgT, 0, 0, WHITE);
                     }
                     DrawButton(buttonW);DrawButton(buttonA);DrawButton(buttonS);DrawButton(buttonD); DrawButton(buttonShift); DrawButton(buttonQuit); if (notsendingugh) {DrawText("You are stuck! You probably got kicked though...", 10, 10, 20, BLACK);}
 
@@ -1207,51 +1108,54 @@ int client_main() {
                     
                     // Update all player states
                     // Update and draw all players
+                    
                     for (auto& [socketId, state] : playerStates) {
-                        state.update(deltaTime);  // Updates interpolation for smooth movement
+                        if (state.room == localPlayer["room"].get<int>()) {  // Only draw players in same room
+                            state.update(deltaTime);  // Updates interpolation for smooth movement
 
-                        // Draw player sprite based on interpolated position
-                        if (spriteSheet.find(std::to_string(state.spriteState)) != spriteSheet.end()) {
-                            Texture2D currentSprite = spriteSheet[std::to_string(state.spriteState)];
-                            Rectangle sourceRect;
-                            
-                            // Handle crouching sprite differently
-                            if (state.spriteState == 5) {
-                                sourceRect = (Rectangle){ 0, 0, 48, 47 }; // Compressed sprite dimensions
+                            // Draw player sprite based on interpolated position
+                            if (spriteSheet.find(std::to_string(state.spriteState)) != spriteSheet.end()) {
+                                Texture2D currentSprite = spriteSheet[std::to_string(state.spriteState)];
+                                Rectangle sourceRect;
+                                
+                                // Handle crouching sprite differently
+                                if (state.spriteState == 5) {
+                                    sourceRect = (Rectangle){ 0, 0, 48, 47 }; // Compressed sprite dimensions
+                                } else {
+                                    sourceRect = (Rectangle){ 0, 0, 64, 64 }; // Normal sprite dimensions
+                                }
+
+                                Rectangle destRect = {
+                                    state.current.x, 
+                                    state.current.y, 
+                                    state.spriteState == 5 ? 48.0f : 64.0f,  // Scale only in rendering
+                                    state.spriteState == 5 ? 47.0f : 64.0f   // Scale only in rendering
+                                };
+                                if (state.room == localPlayer["room"].get<int>()) {
+                                DrawTexturePro(
+                                    currentSprite,
+                                    sourceRect,    // Source rectangle from sprite sheet
+                                    destRect,      // Destination rectangle with current dimensions
+                                    (Vector2){ 0, 0 },
+                                    0.0f,
+                                    WHITE
+                                );}
                             } else {
-                                sourceRect = (Rectangle){ 0, 0, 64, 64 }; // Normal sprite dimensions
+                                DrawRectangle(
+                                    state.current.x, 
+                                    state.current.y, 
+                                    state.current.width, 
+                                    state.current.height, 
+                                    RED
+                                );
                             }
 
-                            Rectangle destRect = {
-                                state.current.x, 
-                                state.current.y, 
-                                state.spriteState == 5 ? 48.0f : 64.0f,  // Scale only in rendering
-                                state.spriteState == 5 ? 47.0f : 64.0f   // Scale only in rendering
-                            };
-
-                            DrawTexturePro(
-                                currentSprite,
-                                sourceRect,    // Source rectangle from sprite sheet
-                                destRect,      // Destination rectangle with current dimensions
-                                (Vector2){ 0, 0 },
-                                0.0f,
-                                WHITE
-                            );
-                        } else {
-                            DrawRectangle(
-                                state.current.x, 
-                                state.current.y, 
-                                state.current.width, 
-                                state.current.height, 
-                                RED
-                            );
+                            // Draw player name
+                            DrawText(state.name.c_str(), 
+                                    state.current.x - 10, 
+                                    state.current.y - 20, 
+                                    20, BLACK);
                         }
-
-                        // Draw player name
-                        DrawText(state.name.c_str(), 
-                                state.current.x - 10, 
-                                state.current.y - 20, 
-                                20, BLACK);
                     }
 
                     EndDrawing();

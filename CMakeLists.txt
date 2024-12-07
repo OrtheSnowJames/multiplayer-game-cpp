@@ -88,6 +88,15 @@ if(UNIX)
     target_link_libraries(test_client PRIVATE GL m pthread dl rt X11)
 endif()
 
+if(WIN32)
+    add_definitions(-D_WIN32_WINNT=0x0A00) # Target Windows 10 or later for WinSock2
+    set(PLATFORM_LIBS ws2_32)
+    target_link_libraries(server PRIVATE ${PLATFORM_LIBS})
+else()
+    set(PLATFORM_LIBS pthread)
+    target_link_libraries(server PRIVATE ${PLATFORM_LIBS})
+endif()
+
 # Include directories
 target_include_directories(server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
