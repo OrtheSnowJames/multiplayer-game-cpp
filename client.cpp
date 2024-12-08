@@ -1085,20 +1085,25 @@ int client_main() {
                             }
                             //special collisions
                             if ((object["objID"] == 2 || object["objID"] == 4) && checkCollision(localPlayerInterpolatedPos, object)) {
-                                int newRoom = (object["objID"] == 2) ? 2 : ((object["objID"] == 4) ? 1 : 1);                                
+                                int newRoom;
+                                if (object["objID"] == 2) {newRoom = 2;}
+                                else {newRoom = 1;}
+                                
+                                // Add this line to prevent multiple transitions
+                                if (newRoom == localPlayer["room"].get<int>()) continue;
+                                
                                 checklist["room"] = newRoom;
-                                checklist["x"] = (newRoom == 1) ? 700 : 100;  // Different spawn points per room
-                                checklist["y"] = (newRoom == 1) ? 300 : 100;
+                                checklist["x"] = (newRoom == 1) ? 90 : 100; 
+                                checklist["y"] = (newRoom == 1) ? 90 : 100;
                                 
                                 localPlayer["room"] = newRoom;
                                 localPlayer["x"] = checklist["x"];
                                 localPlayer["y"] = checklist["y"];
                                 
-                                // Force reset movement flags
                                 canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};
                                 notsendingugh = false;
+                                lastSendTime = std::chrono::steady_clock::now() - sendInterval; 
                                 
-                                // Send room change and position update
                                 json roomChangeMessage = {
                                     {"room", newRoom},
                                     {"updatePosition", {
@@ -1111,8 +1116,14 @@ int client_main() {
                                 };
                                 
                                 boost::asio::write(socket, boost::asio::buffer(roomChangeMessage.dump() + "\n"));
+                                
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                                
+                                //reset the send flag and update the previous checklist
+                                previousChecklist = checklist;
                                 bool send = false;
-                                lastSendTime = std::chrono::steady_clock::now() - sendInterval;
+                                
+                                break;
                             }
                         }
                     }

@@ -393,9 +393,8 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                 json player = lookForPlayer(socket);
                 std::string newRoomName = "room" + std::to_string(messageJson["room"].get<int>());
                 
-                // Update player's room number BEFORE switching rooms
                 player["room"] = messageJson["room"].get<int>();
-                if (player["room"] == 1) {player["x"] = 90; player["y"] = 90;}
+                if (player["room"].get<int>() == 1) {player["x"] = 90; player["y"] = 90;}
                 else {player["x"] = 100; player["y"] = 100;}
                 // Ensure room exists
                 if (!game.contains(newRoomName)) {
