@@ -92,51 +92,49 @@ bool checkWallCollision(const json& object1, const json& object2, int& wall) {
     int top1 = object1["y"].get<int>();
     int bottom1 = top1 + object1["height"].get<int>();
 
-    // Get boundaries of object2 (the wall)
+    // Get boundaries of object2
     int left2 = object2["x"].get<int>();
     int right2 = left2 + object2["width"].get<int>();
     int top2 = object2["y"].get<int>();
     int bottom2 = top2 + object2["height"].get<int>();
 
-    // Check for overlap
+    // check for overlap
     if (right1 <= left2 || left1 >= right2 || bottom1 <= top2 || top1 >= bottom2) {
-        return false; // No collision
+        return false;
     }
 
-    // Determine the side of the wall collided
-    int overlapLeft = right1 - left2;  // Distance into the wall from the left
-    int overlapRight = right2 - left1; // Distance into the wall from the right
-    int overlapTop = bottom1 - top2;   // Distance into the wall from the top
-    int overlapBottom = bottom2 - top1; // Distance into the wall from the bottom
+    //determine the side of the wall collided
+    int overlapLeft = right1 - left2;  
+    int overlapRight = right2 - left1; 
+    int overlapTop = bottom1 - top2;   
+    int overlapBottom = bottom2 - top1;
 
-    // Find the smallest overlap to determine the wall
+    //find the smallest overlap to determine the wall
     int minOverlap = std::min({overlapLeft, overlapRight, overlapTop, overlapBottom});
 
     if (minOverlap == overlapLeft) {
-        wall = 2; // Collided with left side of object2
+        wall = 2;
     } else if (minOverlap == overlapRight) {
-        wall = 4; // Collided with right side of object2
+        wall = 4;
     } else if (minOverlap == overlapTop) {
-        wall = 1; // Collided with top side of object2
+        wall = 1;
     } else if (minOverlap == overlapBottom) {
-        wall = 3; // Collided with bottom side of object2
+        wall = 3; 
     }
 
-    // Adjust player position based on collision
-    if (wall == 1) { // Top collision
+    if (wall == 1) {
         checklist["y"] = object2["y"].get<int>() - object1["height"].get<int>();
-    } else if (wall == 3) { // Bottom collision
+    } else if (wall == 3) {
         checklist["y"] = object2["y"].get<int>() + object2["height"].get<int>();
-    } else if (wall == 2) { // Left collision
+    } else if (wall == 2) {
         checklist["x"] = object2["x"].get<int>() - object1["width"].get<int>();
-    } else if (wall == 4) { // Right collision
+    } else if (wall == 4) {
         checklist["x"] = object2["x"].get<int>() + object2["width"].get<int>();
     }
 
-    return true; // Collision detected
+    return true;
 }
 
-// Personal Space Bubble Struct
 struct personalSpaceBubble {
     //10 inch increments in all directions
     int x;
@@ -180,15 +178,14 @@ struct personalSpaceBubble {
         return checkCollision(bubbleJson, player);
     }
 };
-// Modify Button struct
+
 struct Button {
     Rectangle bounds;
     const char* text;
     bool pressed;
-    bool held;  // Add held state
+    bool held; 
 };
 
-// Update IsButtonPressed function
 bool IsButtonPressed(Button& button, Vector2 mousePoint) {
     bool mouseOver = CheckCollisionPointRec(mousePoint, button.bounds);
     button.held = mouseOver && IsMouseButtonDown(MOUSE_LEFT_BUTTON);
@@ -795,13 +792,11 @@ int client_main() {
         UnloadImage(croppedImage1);
 
         json localPlayer;
-        if (preferredLatency < 68 || preferredLatency > 1000) {
-            preferredLatency = 150;
-        }
-        json previousChecklist = checklist; // Store the previous checklist
+        if (preferredLatency < 68 || preferredLatency > 1000) preferredLatency = 150;
+        json previousChecklist = checklist; 
         std::map<std::string, bool> keys = DetectKeyPress();
         bool gameRunning = true;
-        int moveSpeed = 5; // Adjust movement speed
+        int moveSpeed = 5; 
 
         try {
             io_context io_context;
@@ -825,7 +820,6 @@ int client_main() {
             
             Button reconnectButton = {{static_cast<float>(screenWidth)/2 - 100.0f, static_cast<float>(screenHeight)/2 + 120.0f, 200.0f, 40.0f}, "Reconnect", false};
 
-            // Get initial values
             std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
             if (ip.find(":") != std::string::npos) {
                 ip = ip.substr(0, ip.find(":"));
@@ -885,18 +879,17 @@ int client_main() {
 
             bool initGame = false;
             initGameFully = false;
-            localPlayerSet = false;  //new flag to track if local player is set
+            localPlayerSet = false;  //flag to track if local player is set
             
-            // Timer for sending updates
+            //timer for sending updates
             auto lastSendTime = std::chrono::steady_clock::now();
             const std::chrono::milliseconds sendInterval(preferredLatency); // 255ms default interval; average human reaction time is 250ms but we want to save on aws container costs
 
-            // Start asynchronous read
             boost::asio::async_read_until(socket, buffer, "\n", 
                 [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
                 });
-            // Main Game Loop
+
             json localPlayerInterpolatedPos = {};
             personalSpaceBubble bubble;
             while (!WindowShouldClose() && gameRunning) {
@@ -1348,6 +1341,67 @@ int client_main() {
         return -1;
     }
 }
+
 int main() {
-    return client_main();
+    try {
+        //init game settings
+        int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
+        int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
+        int fps = getEnvVar<int>("FPS", 60);
+        std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
+        int port = getEnvVar<int>("PORT", 5767);
+        
+        boost::asio::io_context io_context;
+        std::shared_ptr<tcp::socket> socket_ptr = std::make_shared<tcp::socket>(io_context);
+        bool networkInitialized = false;
+
+        // Network thread
+        std::thread networkThread([&]() {
+            try {
+                tcp::endpoint endpoint(ip::address::from_string(ip), port);
+                socket_ptr->connect(endpoint);
+                networkInitialized = true;
+                
+                while (!shouldQuit) {
+                    io_context.poll();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Network thread error: " << e.what() << std::endl;
+                logToFile("Network thread error: " + std::string(e.what()), ERROR);
+                shouldQuit = true;
+            }
+        });
+
+        // Wait for network initialization
+        while (!networkInitialized && !shouldQuit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        if (shouldQuit) {
+            if (networkThread.joinable()) {
+                networkThread.join();
+            }
+            return -1;
+        }
+
+        int result = client_main();
+
+        shouldQuit = true;
+        if (networkThread.joinable()) {
+            networkThread.join();
+        }
+
+        return result;
+
+    } catch (const std::exception& e) {
+        if (std::string(e.what()).find("Broken pipe") != std::string::npos) {
+            std::cerr << "Server not detected, terminating immediately" << std::endl;
+            logToFile("Server not detected, terminating immediately", ERROR);
+            exit(1);
+        }
+        logToFile(std::string("FATAL ERROR: ") + e.what());
+        std::cerr << "Fatal exception: " << e.what() << std::endl;
+        return -1;
+    }
 }

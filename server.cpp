@@ -565,6 +565,43 @@ std::string generateRandomName() {
     }
     return name;
 }
+bool playersInRoom(const std::string& roomName) {
+    if (!game.contains(roomName)) {
+        return false;
+    }
+    return game[roomName].contains("players") && !game[roomName]["players"].empty();
+}
+//object id for shield is 5
+json createShield() {
+    std::random_device rd;
+    json shield = {
+        {"x", rd() % 600},
+        {"y", rd() % 300},
+        {"width", 32},
+        {"height", 32},
+        {"objID", 5}
+    };
+    return shield;
+}
+bool shieldExists() {
+    for (auto& o : game["room2"]["objects"]) {
+        if (o["objID"] == 5) {
+            return true;
+        }
+    }
+    return false;
+}
+void shieldThread() {
+    while (!server.stopped()) {
+        //conditions to regenerate a shield
+        if (playersInRoom("room2") && !shieldExists()) {
+            std::lock_guard<std::mutex> lock(game_mutex);
+            game["room2"]["objects"].push_back(createShield());
+            
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+}
 
 void startServer(int port) {
     try {
@@ -721,8 +758,9 @@ int main() {
                     if (input == "quit" || input == "^C") {
                         gameRunning = false;
                         json quitMessage = {{"quitGame", true}};
-                        broadcastMessage(quitMessage.dump());
+                        broadcastMessage(quitMessage.dump() + "\n");
                         io_context.stop();
+                        setupSignalHandlers(io_context);
                         break;
                     } else if (input == "kick") {
                         std::cout << "Current players:\n";
@@ -870,9 +908,14 @@ int main() {
             });
 
             // Main input loop
-            while (gameRunning) {
+            while (gameRunning && std::cin.good()) {
                 std::string input;
+                std::cout << "> "; 
                 std::getline(std::cin, input);
+                
+                if (input.empty()) {
+                    continue;
+                }
                 
                 if (input == "quit" || input == "^C") {
                     gameRunning = false;
@@ -939,6 +982,18 @@ int main() {
                     std::cout << "\n=== CURRENT GAME STATE ===\n";
                     std::cout << game.dump(2) << std::endl;
                     std::cout << "========================\n\n";
+                } else if (input == "gamewrite") {
+                    std::string filename;
+                    std::cout << "Enter filename to write game state: ";
+                    std::getline(std::cin, filename);
+                    std::ofstream file(filename);
+                    if (file.is_open()) {
+                        std::lock_guard<std::mutex> lock(game_mutex);
+                        file << game.dump(2) << std::endl;
+                        std::cout << "Game state written to " << filename << std::endl;
+                    } else {
+                        std::cerr << "Error writing to file: " << filename << std::endl;
+                    }
                 }
             }
             
@@ -953,32 +1008,27 @@ int main() {
             CloseWindow();
         }
         
-        
-        // Create a local WebSocket server instance
+        //even though websocket doesn't work, I'll still keep it here
         WebSocketServer* wsServer = new WebSocketServer();
         
-        // Initialize WebSocket server
         wsServer->set_access_channels(websocketpp::log::alevel::all);
         wsServer->clear_access_channels(websocketpp::log::alevel::frame_payload);
         wsServer->init_asio();
 
-        // Set handlers with proper namespace
         using websocketpp::lib::placeholders::_1;
         using websocketpp::lib::placeholders::_2;
         wsServer->set_message_handler(websocketpp::lib::bind(&on_message, _1, _2));
         wsServer->set_open_handler(websocketpp::lib::bind(&on_open, _1));
         wsServer->set_close_handler(websocketpp::lib::bind(&on_close, _1));
 
-        // Start WebSocket server
+        //start WebSocket server
         wsServer->listen(5767);
         wsServer->start_accept();
 
-        // Run the server in its own thread
         std::thread wsThread([wsServer]() {
             wsServer->run();
         });
 
-        // Wait for server thread to finish
         if (wsThread.joinable()) {
             wsThread.join();
         }

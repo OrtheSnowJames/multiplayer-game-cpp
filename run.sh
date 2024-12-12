@@ -8,14 +8,14 @@ chmod +x saveData.sh
 source ./saveData.sh
 echo "Hopefully you built the project with 'mkdir build', 'cd build' 'cmake ..' and 'make'..."
 read -p "Do you have xterm installed? [y/n]: " xtermInstalled
-if [ "${xtermInstalled}" = "y" ]; then
+if [ "${xtermInstalled}" = "y" ] || [ "${xtermInstalled}" = "Y" ]; then
     if [ -d "build" ]; then
         rm server
         rm client
         cp build/client .
         cp build/server .
         chmod 644 *.png
-        xterm -e "./client; /bin/bash" & xterm -e "./server; /bin/bash"
+        xterm -e "sleep 1; ./client; /bin/bash" & xterm -e "./server; /bin/bash"
     else
         echo "Build directory does not exist. Please create it and build the project."
         exit 1
