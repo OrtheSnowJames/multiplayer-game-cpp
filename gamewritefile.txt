@@ -1,0 +1,61 @@
+{
+  "room1": {
+    "enemies": null,
+    "objects": [
+      {
+        "height": 60,
+        "objID": 1,
+        "width": 228,
+        "x": 123,
+        "y": 144
+      },
+      {
+        "height": 74,
+        "objID": 2,
+        "width": 177,
+        "x": 350,
+        "y": 159
+      },
+      {
+        "height": 60,
+        "objID": 3,
+        "width": 205,
+        "x": 524,
+        "y": 162
+      }
+    ],
+    "players": []
+  },
+  "room2": {
+    "enemies": null,
+    "objects": [
+      {
+        "height": 286,
+        "objID": 4,
+        "width": 93,
+        "x": 410,
+        "y": 0
+      }
+    ],
+    "players": [
+      {
+        "height": 64,
+        "inventory": {
+          "bananas": 0,
+          "shields": 0
+        },
+        "local": true,
+        "name": "TEST: James5",
+        "room": 2,
+        "score": 0,
+        "skin": 1,
+        "socket": 7,
+        "speed": 5,
+        "spriteState": 3,
+        "width": 64,
+        "x": 165,
+        "y": 280
+      }
+    ]
+  }
+}

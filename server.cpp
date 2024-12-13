@@ -800,8 +800,31 @@ int main() {
                                             json kickedPlayer = *it;
                                             int sockid = kickedPlayer["socket"].get<int>();
                                             if (auto socket = getSocketFromId(sockid)) {
-                                                json kickedMessage = {{"quitGame", true}};
-                                                boost::asio::write(*socket, boost::asio::buffer(kickedMessage.dump() + "\n"));
+                                                try {
+                                                    json kickedMessage = {{"quitGame", true}};
+                                                    boost::asio::write(*socket, boost::asio::buffer(kickedMessage.dump() + "\n"));
+                                                    
+                                                    // Remove from connected sockets
+                                                    std::lock_guard<std::mutex> lock(socket_mutex);
+                                                    connected_sockets.erase(
+                                                        std::remove_if(connected_sockets.begin(), connected_sockets.end(),
+                                                            [sockid](const std::shared_ptr<tcp::socket>& s) {
+                                                                return s->native_handle() == sockid;
+                                                            }
+                                                        ),
+                                                        connected_sockets.end()
+                                                    );
+                                                    
+                                                    // Close the socket
+                                                    socket->close();
+                                                    
+                                                    // Broadcast updated game state after removing player
+                                                    json gameUpdate = {{"getGame", game}};
+                                                    broadcastMessage(gameUpdate);
+                                                    std::cout << "Player kicked successfully\n";
+                                                } catch (const std::exception& e) {
+                                                    std::cerr << "Error kicking player: " << e.what() << std::endl;
+                                                }
                                             }
                                             players.erase(it, players.end());
                                             // Broadcast updated game state
@@ -963,8 +986,31 @@ int main() {
                                         kickedPlayer = *it;
                                         int sockid = kickedPlayer["socket"].get<int>();
                                         if (auto socket = getSocketFromId(sockid)) {
-                                            json kickedMessage = {{"quitGame", true}};
-                                            boost::asio::write(*socket, boost::asio::buffer(kickedMessage.dump() + "\n"));
+                                            try {
+                                                json kickedMessage = {{"quitGame", true}};
+                                                boost::asio::write(*socket, boost::asio::buffer(kickedMessage.dump() + "\n"));
+                                                
+                                                // Remove from connected sockets
+                                                std::lock_guard<std::mutex> lock(socket_mutex);
+                                                connected_sockets.erase(
+                                                    std::remove_if(connected_sockets.begin(), connected_sockets.end(),
+                                                        [sockid](const std::shared_ptr<tcp::socket>& s) {
+                                                            return s->native_handle() == sockid;
+                                                        }
+                                                    ),
+                                                    connected_sockets.end()
+                                                );
+                                                
+                                                // Close the socket
+                                                socket->close();
+                                                
+                                                // Broadcast updated game state after removing player
+                                                json gameUpdate = {{"getGame", game}};
+                                                broadcastMessage(gameUpdate);
+                                                std::cout << "Player kicked successfully\n";
+                                            } catch (const std::exception& e) {
+                                                std::cerr << "Error kicking player: " << e.what() << std::endl;
+                                            }
                                         }
                                         players.erase(it, players.end());
                                         json gameUpdate = {{"getGame", game}};

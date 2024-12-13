@@ -47,11 +47,14 @@ json checklist = {
     {"requestGame", false},
     {"x", 0},
     {"y", 0},
+    {"width", 64},
+    {"height", 64},
     {"currentGame", ""},
     {"currentPlayer", ""},
     {"spriteState", 1},
     {"room", 1},
-    {"playerCount", 0}
+    {"playerCount", 0},
+    {"speed", 5}
 };
 
 json canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};
@@ -447,10 +450,22 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 std::cout << "Room transition complete. Movement enabled in " << roomName << std::endl;
                             }
                         }
-                        if (messageJson.contains("quitGame")) {
+
+                        if (messageJson.contains("quitGame") && messageJson["quitGame"].get<bool>()) {
+                            std::cout << "Received quit message from server" << std::endl;
+                            logToFile("Received quit message from server", INFO);
                             gameRunning = false;
-                            std::cout << "Game quit requested" << std::endl;
+                            
+                            // Close socket properly
+                            if (socket.is_open()) {
+                                boost::system::error_code ec;
+                                socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+                                socket.close();
+                            }
+                            
+                            return; 
                         }
+
                         if (messageJson.contains("updatePosition")) {
                             auto& updateData = messageJson["updatePosition"];
                             int socketId = updateData["socket"].get<int>();
@@ -488,8 +503,8 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
         buffer.consume(buffer.size());
         boost::asio::async_read_until(socket, buffer, "\n",
             [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, 
-                          gameRunning, socket, localPlayerSet);
+                handleRead(ec, bytes_transferred, buffer, localPlayer, 
+                          initGameFully, gameRunning, socket, localPlayerSet);
             });
     }
 }
@@ -802,7 +817,8 @@ int client_main() {
             io_context io_context;
             tcp::socket socket(io_context);
             bool reconnecting = false;
-            
+            std::unique_ptr<std::thread> ioThread;
+
             TextBox ipBox = {
                 {static_cast<float>(screenWidth)/2 - 100.0f, static_cast<float>(screenHeight)/2 - 50.0f, 200.0f, 30.0f},
                 new char[256]{0},
@@ -827,9 +843,21 @@ int client_main() {
             strncpy(ipBox.text, ip.c_str(), 255);
             strncpy(portBox.text, std::to_string(port).c_str(), 255);
 
+            boost::asio::streambuf buffer;
+            bool initGameFully = false;
+            json localPlayer;
+            bool localPlayerSet = false;
+
             auto attemptConnection = [&]() -> bool {
                 try {
-                    if (socket.is_open()) socket.close();
+                    if (socket.is_open()) {
+                        socket.close();
+                        io_context.stop();
+                        io_context.reset();
+                        if (ioThread && ioThread->joinable()) {
+                            ioThread->join();
+                        }
+                    }
                     socket = tcp::socket(io_context);
                     ip = std::string(ipBox.text);
                     port = std::stoi(std::string(portBox.text));
@@ -852,30 +880,54 @@ int client_main() {
                 }
             };
 
-            // Initial connection attempt
             if (!attemptConnection()) {
                 reconnecting = true;
+            } else {
+                io_context.stop();
+                io_context.reset();
+                
+                // Start async read first
+                boost::asio::async_read_until(socket, buffer, "\n",
+                    [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                        if (!ec) {
+                            handleRead(ec, bytes_transferred, buffer, localPlayer, 
+                                      initGameFully, gameRunning, socket, localPlayerSet);
+                        } else {
+                            std::cerr << "Read error: " << ec.message() << std::endl;
+                            reconnecting = true;
+                        }
+                    });
+
+                // Send initial player message with all required fields
+                json newMessage = {
+                    {"currentName", LocalName},
+                    {"x", 0},
+                    {"y", 0},
+                    {"width", 64},
+                    {"height", 64},
+                    {"room", 1},
+                    {"spriteState", 1}
+                };
+                
+                try {
+                    std::string messageStr = newMessage.dump() + "\n";
+                    boost::asio::write(socket, boost::asio::buffer(messageStr));
+                    std::cout << "Sent initial message: " << messageStr << std::endl;
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to send initial message: " << e.what() << std::endl;
+                    reconnecting = true;
+                }
+
+                // Start io thread
+                ioThread = std::make_unique<std::thread>([&]() {
+                    try {
+                        io_context.run();
+                    } catch (const std::exception& e) {
+                        std::cerr << "IO thread error: " << e.what() << std::endl;
+                        reconnecting = true;
+                    }
+                });
             }
-
-            if (!attemptConnection()) {
-                reconnecting = true;
-            }
-
-            boost::asio::streambuf buffer;
-            bool initGameFully = false;
-            json localPlayer;
-            bool localPlayerSet = false;
-
-            boost::asio::async_read_until(socket, buffer, "\n",
-                std::bind(&handleRead, std::placeholders::_1, std::placeholders::_2,
-                          std::ref(buffer), std::ref(localPlayer), std::ref(initGameFully),
-                          std::ref(gameRunning), std::ref(socket), std::ref(localPlayerSet))
-            );
-
-            // Run io_context in a separate thread
-            std::thread ioThread([&]() {
-                io_context.run();
-            });
 
             bool initGame = false;
             initGameFully = false;
@@ -884,11 +936,6 @@ int client_main() {
             //timer for sending updates
             auto lastSendTime = std::chrono::steady_clock::now();
             const std::chrono::milliseconds sendInterval(preferredLatency); // 255ms default interval; average human reaction time is 250ms but we want to save on aws container costs
-
-            boost::asio::async_read_until(socket, buffer, "\n", 
-                [&](const boost::system::error_code& ec, std::size_t bytes_transferred) {
-                    handleRead(ec, bytes_transferred, buffer, localPlayer, initGameFully, gameRunning, socket, localPlayerSet);
-                });
 
             json localPlayerInterpolatedPos = {};
             personalSpaceBubble bubble;
@@ -974,15 +1021,15 @@ int client_main() {
                 Button buttonD = {{static_cast<float>(screenWidth) - 120, static_cast<float>(screenHeight) - 180, 60, 60}, "D", false};
                 Button buttonShift = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 120, 60, 60}, "Shift", false};
                 Button buttonQuit = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 60, 60, 60}, "Quit", false};
-                // Show loading screen until fully initialized
                 if (!localPlayerSet || !initGameFully) {
                     DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
                     DrawText("Try reconnecting if you've been here for a while", 40, 40, 20, BLACK);
                     DrawText("If you're stuck, you probably got kicked, just tell the server owner to restart the server", 40, 70, 20, BLACK);
                     DrawText("If you're still stuck, just report on github issues", 40, 100, 20, BLACK);
                     EndDrawing();
-                    continue;  // Skip rest of loop until initialized
+                    continue; 
                 }
+
                 int localSocketId = localPlayer["socket"].get<int>();
                 localPlayerInterpolatedPos = {
                     {"x", playerStates[localSocketId].current.x},
@@ -1082,16 +1129,22 @@ int client_main() {
                                 if (object["objID"] == 2) {newRoom = 2;}
                                 else {newRoom = 1;}
                                 
-                                // Add this line to prevent multiple transitions
                                 if (newRoom == localPlayer["room"].get<int>()) continue;
                                 
                                 checklist["room"] = newRoom;
-                                checklist["x"] = (newRoom == 1) ? 90 : 100; 
-                                checklist["y"] = (newRoom == 1) ? 90 : 100;
+                                checklist["x"] = 90;  // Reset position on room change
+                                checklist["y"] = 90;
                                 
                                 localPlayer["room"] = newRoom;
                                 localPlayer["x"] = checklist["x"];
                                 localPlayer["y"] = checklist["y"];
+                                
+                                // Update player state for smooth transition
+                                int localSocketId = localPlayer["socket"].get<int>();
+                                playerStates[localSocketId].target = Position(90, 90, 64, 64);
+                                playerStates[localSocketId].current = Position(90, 90, 64, 64);
+                                playerStates[localSocketId].room = newRoom;
+                                playerStates[localSocketId].interpolation = 0;
                                 
                                 canMove = {{"w", true}, {"a", true}, {"s", true}, {"d", true}};
                                 notsendingugh = false;
@@ -1100,8 +1153,8 @@ int client_main() {
                                 json roomChangeMessage = {
                                     {"room", newRoom},
                                     {"updatePosition", {
-                                        {"x", checklist["x"]},
-                                        {"y", checklist["y"]},
+                                        {"x", 90},
+                                        {"y", 90},
                                         {"room", newRoom},
                                         {"socket", localPlayer["socket"]},
                                         {"spriteState", checklist["spriteState"]}
@@ -1225,13 +1278,43 @@ int client_main() {
                     checklist["x"] = std::max(0, std::min(screenWidth - 32, checklist["x"].get<int>()));
                     checklist["y"] = std::max(0, std::min(screenHeight - 32, checklist["y"].get<int>()));
                     
-                    // Only send if checklist has changed and interval has passed
                     auto now = std::chrono::steady_clock::now();
+                    //if spawned in new room set x and y to 90
+                    if (checklist["room"].get<int>() != localPlayer["room"].get<int>()) {
+                        checklist["x"] = 90;
+                        checklist["y"] = 90;
+                    }
+
                     if (send && (now - lastSendTime) >= sendInterval && checklist != previousChecklist) {
-                        std::string messageStr = checklist.dump() + "\n";
+                            json messageToSend = {
+                            {"x", checklist["x"].get<int>()},
+                            {"y", checklist["y"].get<int>()},
+                            {"width", checklist["width"].get<int>()},
+                            {"height", checklist["height"].get<int>()},
+                            {"room", checklist["room"].get<int>()},
+                            {"spriteState", checklist["spriteState"].get<int>()},
+                            {"speed", checklist["speed"].get<int>()},
+                            {"goingup", checklist["goingup"]},
+                            {"goingleft", checklist["goingleft"]},
+                            {"goingright", checklist["goingright"]},
+                            {"goingdown", checklist["goingdown"]}
+                         };
+
+                            int localSocketId = localPlayer["socket"].get<int>();
+                            playerStates[localSocketId].target = Position(
+                                checklist["x"].get<float>(),
+                                checklist["y"].get<float>(),
+                                checklist["width"].get<float>(),
+                                checklist["height"].get<float>()
+                        );
+                        playerStates[localSocketId].spriteState = checklist["spriteState"].get<int>();
+                        playerStates[localSocketId].room = checklist["room"].get<int>();
+                        playerStates[localSocketId].interpolation = 0;
+
+                        std::string messageStr = messageToSend.dump() + "\n";
                         boost::asio::write(socket, boost::asio::buffer(messageStr));
                         lastSendTime = now;
-                        previousChecklist = checklist; // Update previous checklist
+                        previousChecklist = checklist;  
                     }
                 }
                 std::string localRoomName = "room" + std::to_string(localPlayer["room"].get<int>());
@@ -1344,54 +1427,8 @@ int client_main() {
 
 int main() {
     try {
-        //init game settings
-        int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
-        int screenHeight = getEnvVar<int>("SCREEN_HEIGHT", 450);
-        int fps = getEnvVar<int>("FPS", 60);
-        std::string ip = getEnvVar<std::string>("IP", "127.0.1.1");
-        int port = getEnvVar<int>("PORT", 5767);
-        
-        boost::asio::io_context io_context;
-        std::shared_ptr<tcp::socket> socket_ptr = std::make_shared<tcp::socket>(io_context);
-        bool networkInitialized = false;
-
-        // Network thread
-        std::thread networkThread([&]() {
-            try {
-                tcp::endpoint endpoint(ip::address::from_string(ip), port);
-                socket_ptr->connect(endpoint);
-                networkInitialized = true;
-                
-                while (!shouldQuit) {
-                    io_context.poll();
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "Network thread error: " << e.what() << std::endl;
-                logToFile("Network thread error: " + std::string(e.what()), ERROR);
-                shouldQuit = true;
-            }
-        });
-
-        // Wait for network initialization
-        while (!networkInitialized && !shouldQuit) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        if (shouldQuit) {
-            if (networkThread.joinable()) {
-                networkThread.join();
-            }
-            return -1;
-        }
-
+        // Only keep basic initialization here
         int result = client_main();
-
-        shouldQuit = true;
-        if (networkThread.joinable()) {
-            networkThread.join();
-        }
-
         return result;
 
     } catch (const std::exception& e) {
