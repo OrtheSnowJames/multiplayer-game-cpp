@@ -20,6 +20,7 @@ find_package(GTest REQUIRED)
 set(SERVER_SOURCES
     server.cpp
     coolfunctions.hpp
+    libs/pathfinding.hpp
 )
 
 set(CLIENT_SOURCES
