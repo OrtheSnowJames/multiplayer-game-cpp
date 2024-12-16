@@ -20,3 +20,4 @@ void HideKeyboard() {
         [inputTextField resignFirstResponder];
     }
 }
+#endif

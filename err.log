@@ -830,3 +830,5 @@ Error in handleMessage: [json.exception.type_error.302] type must be number, but
 Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
 [ERROR] Thu Dec 12 16:21:22 2024
 Error in handleMessage: [json.exception.type_error.302] type must be number, but is null
+[ERROR] Thu Dec 12 18:51:09 2024
+Error in eraseUser: [json.exception.type_error.307] cannot use erase() with null
