@@ -1,5 +1,6 @@
 #ifndef ENEMY_HPP
 #define ENEMY_HPP
+
 #include "../raylib.h"
 #include <iostream>
 #include "pathfinding.hpp"
@@ -9,7 +10,7 @@
 using json = nlohmann::json;
 using namespace std;
 
-inline bool checkECollision(const json& enemy, const json& player) {
+static bool checkECollision(const json& enemy, const json& player) {
     if (!enemy.contains("x") || !enemy.contains("y") || 
         !player.contains("x") || !player.contains("y") ||
         !enemy.contains("width") || !enemy.contains("height") ||
@@ -30,48 +31,46 @@ inline bool checkECollision(const json& enemy, const json& player) {
     return !(left1 > right2 || right1 < left2 || top1 > bottom2 || bottom1 < top2);
 }
 
-template <typename T>
-T updateEnemy(json& playersarray, json& enemy) {
-    //first move towards if time inbetween was 1 second (5px)
-    string direction = findPixelToGoTo(enemy, playersarray);
-    if (direction == "north") enemy["y"] -= enemy["speed"];
-    else if (direction == "north-east") {
-        enemy["y"] -= enemy["speed"];
-        enemy["x"] += enemy["speed"];
-    }
-    else if (direction == "east") enemy["x#include "libs/pathfinding.hpp""] += enemy["speed"];
-    else if (direction == "south-east") {
-        enemy["y"] += enemy["speed"];
-        enemy["x"] += enemy["speed"];
-    }
-    else if (direction == "south") enemy["y"] += enemy["speed"];
-    else if (direction == "south-west") {
-        enemy["y"] += enemy["speed"];
-        enemy["x"] -= enemy["speed"];
-    }
-    else if (direction == "west") enemy["x"] -= enemy["speed"];
-    else if (direction == "north-west") {
-        enemy["y"] -= enemy["speed"];
-        enemy["x"] -= enemy["speed"];
-    }
-    int playerinarray;
-    //then check if player is colliding
-   for (int it = 0; it < playersarray.size(); it++) {
+inline nlohmann::json updateEnemy(json& playersarray, json& enemy) {
+    // Call with correct argument order
+    string direction = findPixelToGoTo(playersarray, enemy);
+
+    int speed = enemy["speed"].get<int>();
+    int ex = enemy["x"].get<int>();
+    int ey = enemy["y"].get<int>();
+
+    if (direction == "north") ey -= speed;
+    else if (direction == "north-east") { ey -= speed; ex += speed; }
+    else if (direction == "east") ex += speed;
+    else if (direction == "south-east") { ey += speed; ex += speed; }
+    else if (direction == "south") ey += speed;
+    else if (direction == "south-west") { ey += speed; ex -= speed; }
+    else if (direction == "west") ex -= speed;
+    else if (direction == "north-west") { ey -= speed; ex -= speed; }
+    else std::cerr << "Error: direction not found" << std::endl;
+
+    enemy["x"] = ex;
+    enemy["y"] = ey;
+
+    int playerinarray = -1; // Initialize to -1 to indicate no collision found
+
+    for (int it = 0; it < (int)playersarray.size(); it++) {
         if (checkECollision(enemy, playersarray[it])) {
-            //player is hit
             playerinarray = it;
             break;
         }
     }
+
     json message;
-    if (playersarray[playerinarray]["inventory"]["shields"] == 0 || playersarray[playerinarray]["inventory"]["shields"] < 0) {
+    if (playerinarray < 0 || playerinarray >= (int)playersarray.size()) {
+        message = {{"noCollision", true}};
+    } else if (playersarray[playerinarray]["inventory"]["shields"] <= 0) {
         message = {{"playerDead", playersarray[playerinarray]["id"]}};
-        return message;
     } else {
-        //make sure server handles shield taking 
         message = {{"playerHit", playersarray[playerinarray]["id"]}};
-        return message;
     }
+
+    return message;
 }
 
 #endif

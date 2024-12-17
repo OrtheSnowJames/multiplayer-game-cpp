@@ -8,15 +8,16 @@
 #include <vector>
 #include <set>
 #include <mutex>
-#include "coolfunctions.hpp"
 #include <cstdlib>
 #include <sstream>
 #include <atomic>
-#include <boost/asio/signal_set.hpp>
 #include <chrono>
 #include <filesystem>
-#include <websocketpp/config/asio_no_tls.hpp>
+#include "libs/enemy.hpp"
+#include "coolfunctions.hpp"
 #include <websocketpp/server.hpp>
+#include <boost/asio/signal_set.hpp>
+#include <websocketpp/config/asio_no_tls.hpp>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -25,9 +26,10 @@ using SocketHandle = SOCKET;
 using SocketHandle = int;
 #endif
 
-// Add helper function for socket handle casting
+int enemyNewId = 0;
+
 int castWinsock(boost::asio::ip::tcp::socket& socket) {
-    SocketHandle nativeHandle = socket.native_handle();
+    auto nativeHandle = socket.native_handle();
     int intHandle;
 #ifdef _WIN32
     intHandle = static_cast<int>(reinterpret_cast<intptr_t>(nativeHandle));
@@ -39,6 +41,7 @@ int castWinsock(boost::asio::ip::tcp::socket& socket) {
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
+using namespace std;
 namespace fs = std::filesystem;
 
 typedef websocketpp::server<websocketpp::config::asio> WebSocketServer;
@@ -104,7 +107,7 @@ std::string lookForRoom(tcp::socket& socket) {
             }
         }
     }
-    return "room1";  // Default room
+    return "room1";
 }
 
 boost::asio::io_context io_context;
@@ -192,6 +195,23 @@ json createUser(const std::string& name, int id) {
         }
     }
     return newPlayer;
+}
+
+json createEnemy() {
+    random_device rd;
+    json newEnemy = {
+        {"x", rd() % 600},
+        {"y", rd() % 300},
+        {"speed", 5},
+        {"width", 64},
+        {"height", 64},
+        // speed = how many pixels per second, not millisecond
+        {"speed", 50},
+        {"id", enemyNewId}
+    };
+
+    return newEnemy;
+    
 }
 
 json createUser(const std::string& name, tcp::socket& socket) {
