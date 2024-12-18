@@ -1,4 +1,5 @@
 #KNOWN ISSUE: If you can't build, run 'rm -rf build'.
+cmake_policy(SET CMP0167 NEW)
 cmake_minimum_required(VERSION 3.15)
 project(multiplayer_game_cpp)
 

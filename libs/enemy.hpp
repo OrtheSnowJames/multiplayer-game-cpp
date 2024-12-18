@@ -32,7 +32,6 @@ static bool checkECollision(const json& enemy, const json& player) {
 }
 
 inline nlohmann::json updateEnemy(json& playersarray, json& enemy) {
-    // Call with correct argument order
     string direction = findPixelToGoTo(playersarray, enemy);
 
     int speed = enemy["speed"].get<int>();
@@ -52,7 +51,7 @@ inline nlohmann::json updateEnemy(json& playersarray, json& enemy) {
     enemy["x"] = ex;
     enemy["y"] = ey;
 
-    int playerinarray = -1; // Initialize to -1 to indicate no collision found
+    int playerinarray = -1;
 
     for (int it = 0; it < (int)playersarray.size(); it++) {
         if (checkECollision(enemy, playersarray[it])) {
@@ -62,7 +61,7 @@ inline nlohmann::json updateEnemy(json& playersarray, json& enemy) {
     }
 
     json message;
-    if (playerinarray < 0 || playerinarray >= (int)playersarray.size()) {
+    if (playerinarray < 0 || playerinarray >= static_cast<int>(playersarray.size())) {
         message = {{"noCollision", true}};
     } else if (playersarray[playerinarray]["inventory"]["shields"] <= 0) {
         message = {{"playerDead", playersarray[playerinarray]["id"]}};

@@ -197,7 +197,7 @@ json createUser(const std::string& name, int id) {
     return newPlayer;
 }
 
-json createEnemy() {
+json createEnemy(int& room) {
     random_device rd;
     json newEnemy = {
         {"x", rd() % 600},
@@ -205,13 +205,20 @@ json createEnemy() {
         {"speed", 5},
         {"width", 64},
         {"height", 64},
+        {"room", room},
         // speed = how many pixels per second, not millisecond
         {"speed", 50},
         {"id", enemyNewId}
     };
 
-    return newEnemy;
+    for (auto& o : game["room" + to_string(room)]["objects"]) {
+        if (checkCollision(newEnemy, o)) {
+            newEnemy = createEnemy(room);  // recreate enemy if colliding
+        }
+    }
     
+    enemyNewId++;
+    return newEnemy;
 }
 
 json createUser(const std::string& name, tcp::socket& socket) {
@@ -241,11 +248,9 @@ json createUser(const std::string& name, tcp::socket& socket) {
     return newPlayer;
 }
 
-// Modify eraseUser function
 void eraseUser(int id) {
     std::lock_guard<std::mutex> lock(game_mutex);
     try {
-        // First remove from connected_sockets SAFELY AHEM AHEM
         {
             std::lock_guard<std::mutex> socket_lock(socket_mutex);
             auto it = std::remove_if(connected_sockets.begin(), connected_sockets.end(),
@@ -255,7 +260,6 @@ void eraseUser(int id) {
             connected_sockets.erase(it, connected_sockets.end());
         }
 
-        // Then remove from game rooms
         for (auto& room : game.items()) {
             if (room.value().contains("players")) {
                 auto& players = room.value()["players"];
@@ -275,9 +279,8 @@ void eraseUser(int id) {
     }
 }
 
-
 void broadcastMessage(const json& message) {
-    std::lock_guard<std::mutex> lock(game_mutex); // Ensure thread-safe access
+    std::lock_guard<std::mutex> lock(game_mutex);
     std::string compact = message.dump() + "\n";
     auto it = connected_sockets.begin();
     while (it != connected_sockets.end()) {
@@ -296,6 +299,7 @@ void broadcastMessage(const json& message) {
     }
     game = game;
 }
+
 
 bool findPlayer(std::string name) {
     for (auto& room : game.items()) {
@@ -575,7 +579,7 @@ std::string generateRandomName() {
         "0123456789"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "abcdefghijklmnopqrstuvwxyz";
-    int len = 8; // Length of the random name
+    const int len = 8; // Length of the random name
     std::string name;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -623,9 +627,14 @@ void shieldThread() {
     }
 }
 
+void enemyThread();
+
 void startServer(int port) {
     try {
         tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+
+        //activate threads
+        std::thread enemyThreadInstance(enemyThread);
 
         // Function to start accepting connections
         std::function<void()> do_accept;
@@ -640,15 +649,7 @@ void startServer(int port) {
                     }
 
                     // Create new player
-                    json newPlayer;
-                    newPlayer["name"] = generateRandomName();
-                    newPlayer["socket"] = socket_ptr->native_handle();
-                    newPlayer["x"] = 100;  // Starting position
-                    newPlayer["y"] = 100;
-                    newPlayer["width"] = 64.0f;
-                    newPlayer["height"] = 64.0f;
-                    newPlayer["spriteState"] = 0;
-                    newPlayer["room"] = 1;
+                    json newPlayer = createUser(generateRandomName(), *socket_ptr);
 
                     // Add newPlayer to game state
                     {
@@ -691,7 +692,43 @@ int getNextId() {
     return ++nextId;
 }
 
+void enemyThread() {
+    while (!server.stopped()) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::lock_guard<std::mutex> lock(game_mutex);
+        for (auto& room : game.items()) {
+            if (room == "room1") {
+                //room1 has no enemies
+                continue;
+            }
+            if (room.value().contains("enemies")) {
+                auto& enemies = room.value()["enemies"];
+                if (enemies.size() < 4) {
+                    int roomNumber = std::stoi(room.key().substr(4));
+                    json newEnemy = createEnemy(roomNumber);
+                    enemies.push_back(newEnemy);
+                    json message = {{"getEnemy", true}, {"id", newEnemy["id"].get<int>()}, {"x", newEnemy["x"].get<int>()}, {"y", newEnemy["y"].get<int>()}, {"width", newEnemy["width"].get<int>()}, {"height", newEnemy["height"]}, {"room", newEnemy["room"].get<int>()}};
+                    broadcastMessage(message);
+                }
+            }
+                for (auto& [roomName, roomData] : game.items()) {
+                    if (!roomData.contains("enemies")) {
+                        continue;
+                }
 
+                for (auto& enemy : roomData["enemies"]) {
+                    json beforeEnemy = enemy;
+                    json output = updateEnemy(roomData["players"], enemy);
+                    json afterEnemy = enemy;
+                    if (beforeEnemy != afterEnemy) {
+                        json updateMessage = {{"updateEPosition", afterEnemy}};
+                        broadcastMessage(updateMessage);
+                    }
+                }
+            }
+        }
+    }
+}
 
 void on_message(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr msg) {
     try {

@@ -1,9 +1,11 @@
 {
-  "dependencies": [
-    "boost",
-    "raylib",
-    "nlohmann-json",
-    "gtest",
-    "emscripten"
-  ]
+    "name": "multiplayer-game-cpp",
+    "version": "1.0.0",
+    "dependencies": [
+        "boost-asio",
+        "nlohmann-json",
+        "raylib",
+        "websocketpp",
+        "gtest"
+    ]
 }

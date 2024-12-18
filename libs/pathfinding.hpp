@@ -7,10 +7,6 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-#ifndef PI
-#define PI 3.14159265358979323846
-#endif
-#define RAD2DEG (180.0f / PI)
 
 inline int calculateDistance(json& object, json& other_object) {
     int dx = object["x"].get<int>() - other_object["x"].get<int>();

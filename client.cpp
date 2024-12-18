@@ -286,22 +286,12 @@ void restartApplication(int & WindowsOpenInt) {
     }
 }
 
-json test = {
-    {"thing", {
-        {"name", "test"},
-        {"x", 10},
-        {"y", 10},
-        {"width", 10},
-        {"height", 10}
-    }}
-};
-
 struct Position {
     float x;
     float y;
     float width;
     float height;
-    Position(float x_ = 0, float y_ = 0, float width_ = 64, float height_ = 64)  // Always initialize with full size
+    Position(float x_ = 0, float y_ = 0, float width_ = 64, float height_ = 64)
         : x(x_), y(y_), width(width_), height(height_) {}
 };
 
@@ -328,6 +318,86 @@ struct PlayerState {
 };
 
 std::map<int, PlayerState> playerStates;
+
+// Add this after PlayerState struct and before client_main()
+struct EnemyState {
+    Position current;
+    Position target;
+    float interpolation = 0;
+    int id;
+    int room = 1;
+    
+    void update(float dt) {
+        if (interpolation < 1.0f) {
+            interpolation += dt * 10.0f;
+            if (interpolation > 1.0f) interpolation = 1.0f;
+            
+            current.x = current.x + (target.x - current.x) * interpolation;
+            current.y = current.y + (target.y - current.y) * interpolation;
+            current.width = current.width + (target.width - current.width) * interpolation;
+            current.height = current.height + (target.height - current.height) * interpolation;
+        }
+    }
+};
+
+std::map<int, EnemyState> enemyStates;
+
+json lookForEnemy(int id) {
+    for (auto& [roomName, roomData] : game.items()) {
+        if (roomData.contains("enemies")) {
+            for (int i = 0; i < (int)roomData["enemies"].size(); i++) {
+                if (roomData["enemies"][i]["id"].get<int>() == id) {
+                    int roomNumber = 1;
+                    if (roomName.size() > 4) {
+                        roomNumber = std::stoi(roomName.substr(4));
+                    }
+                    return {{"room", roomNumber}, {"enemy", i}};
+                }
+            }
+        }
+    }
+    return {};
+}
+
+void updateEPosition(const json& updateData) {
+    int enemyId = updateData["enemyId"].get<int>();
+
+    if (enemyStates.find(enemyId) == enemyStates.end()) {
+        enemyStates[enemyId] = EnemyState();
+        enemyStates[enemyId].id = enemyId;
+        // Initialize current position to match target for smooth initial state
+        enemyStates[enemyId].current = Position(
+            static_cast<float>(updateData["x"].get<int>()),
+            static_cast<float>(updateData["y"].get<int>()),
+            static_cast<float>(updateData["width"].get<int>()),
+            static_cast<float>(updateData["height"].get<int>())
+        );
+    }
+
+    enemyStates[enemyId].target = Position(
+        static_cast<float>(updateData["x"].get<int>()),
+        static_cast<float>(updateData["y"].get<int>()),
+        static_cast<float>(updateData["width"].get<int>()),
+        static_cast<float>(updateData["height"].get<int>())
+    );
+
+    json enemyPointerRaw = lookForEnemy(enemyId);
+    int room;
+    int enemy;
+    try {
+        room = enemyPointerRaw["room"].get<int>();
+        enemy = enemyPointerRaw["enemy"].get<int>();
+
+        enemyStates[enemyId].room = room;
+        enemyStates[enemyId].interpolation = 0;
+
+        game["room" + std::to_string(room)]["enemies"][enemy]["x"] = updateData["x"];
+        game["room" + std::to_string(room)]["enemies"][enemy]["y"] = updateData["y"];
+    } catch (const exception& e) {
+        std::cerr << "Error looking for enemy: " << e.what() << std::endl;
+        logToFile("Error looking for enemy: " + std::string(e.what()), ERROR);
+    }
+}
 
 void handleRead(const boost::system::error_code& error, std::size_t bytes_transferred, 
                 boost::asio::streambuf& buffer, json& localPlayer, bool& initGameFully, 
@@ -413,6 +483,54 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                             }
                         }
                         
+                        if (messageJson.contains("getEnemy")) {
+                            json enemyData = messageJson["getEnemy"];
+                            int enemyId = enemyData["id"].get<int>();
+                            
+                            // Initialize or update enemy state with interpolation
+                            if (enemyStates.find(enemyId) == enemyStates.end()) {
+                                enemyStates[enemyId] = EnemyState();
+                                enemyStates[enemyId].id = enemyId;
+                                // Set initial position
+                                enemyStates[enemyId].current = Position(
+                                    static_cast<float>(enemyData["x"].get<int>()),
+                                    static_cast<float>(enemyData["y"].get<int>()),
+                                    static_cast<float>(enemyData["width"].get<int>()),
+                                    static_cast<float>(enemyData["height"].get<int>())
+                                );
+                            }
+                            
+                            // Update target position for interpolation
+                            enemyStates[enemyId].target = Position(
+                                static_cast<float>(enemyData["x"].get<int>()),
+                                static_cast<float>(enemyData["y"].get<int>()),
+                                static_cast<float>(enemyData["width"].get<int>()),
+                                static_cast<float>(enemyData["height"].get<int>())
+                            );
+                            enemyStates[enemyId].room = enemyData["room"].get<int>();
+                            enemyStates[enemyId].interpolation = 0;
+                            
+                            // Update game state
+                            std::string roomName = "room" + std::to_string(enemyData["room"].get<int>());
+                            bool exists = false;
+                            
+                            if (game.contains(roomName) && game[roomName].contains("enemies")) {
+                                for (size_t i = 0; i < game[roomName]["enemies"].size(); i++) {
+                                    if (game[roomName]["enemies"][i]["id"] == enemyId) {
+                                        game[roomName]["enemies"][i] = enemyData;
+                                        exists = true;
+                                        break;
+                                    }
+                                }
+                                if (!exists) {
+                                    game[roomName]["enemies"].push_back(enemyData);
+                                }
+                            } else if (game.contains(roomName)) {
+                                game[roomName]["enemies"] = json::array();
+                                game[roomName]["enemies"].push_back(enemyData);
+                            }
+                        }
+
                         if (messageJson.contains("getRoom")) {
                             std::string roomName = messageJson["room"].get<std::string>();
                             game[roomName] = messageJson["getRoom"];
@@ -421,10 +539,8 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 localPlayer["room"] = std::stoi(roomName.substr(4));
                                 localRoomName = roomName;
 
-                                // Clear existing player states for the new room
                                 playerStates.clear();
 
-                                // Initialize player states for all players in the new room
                                 for (const auto& player : game[roomName]["players"]) {
                                     int socketId = player["socket"].get<int>();
                                     playerStates[socketId] = PlayerState();
@@ -475,7 +591,6 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                                 playerStates[socketId].socketId = socketId;
                             }
 
-                            // Keep dimensions constant - only scale in rendering
                             playerStates[socketId].target = Position(
                                 updateData["x"].get<float>(),
                                 updateData["y"].get<float>(),
@@ -490,6 +605,10 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                             if (updateData.contains("room")) {
                                 playerStates[socketId].room = updateData["room"].get<int>();
                             }
+                        }
+
+                        if (messageJson.contains("updateEPosition")) {
+                            updateEPosition(messageJson["updateEPosition"]);
                         }
                         break;  // Exit loop after processing valid message
                     } catch (const json::parse_error&) {
@@ -805,6 +924,25 @@ int client_main() {
         spriteSheet["5"] = player5; spriteSheet["shift"] = player5; 
         UnloadImage(playerImage);
         UnloadImage(croppedImage1);
+
+        // After loading player texture and before loading backgrounds
+        fs::path enemyImgPath = root / "assets" / "enemy.png";
+        debugImagePath(enemyImgPath, "Enemy Image");
+
+        if (!fs::exists(enemyImgPath)) {
+            std::string error = "Enemy image not found at: " + enemyImgPath.string();
+            logToFile(error, WARNING);
+            std::cout << error << std::endl;
+        }
+
+        // Load enemy texture with error checking
+        Texture2D enemyTexture = LoadTexture(enemyImgPath.string().c_str());
+        if (enemyTexture.id == 0) {
+            std::string error = "Failed to load enemy texture at: " + enemyImgPath.string();
+            logToFile(error, WARNING);
+            std::cout << error << std::endl;
+        }
+        debugTexture("Enemy", enemyTexture, enemyImgPath);
 
         json localPlayer;
         if (preferredLatency < 68 || preferredLatency > 1000) preferredLatency = 150;
@@ -1385,6 +1523,34 @@ int client_main() {
                         }
                     }
 
+                    // Update and draw all enemies
+                    for (auto& [enemyId, state] : enemyStates) {
+                        if (state.room == localPlayer["room"].get<int>()) {
+                            state.update(deltaTime);
+
+                            // Draw enemy with texture if available
+                            if (enemyTexture.id != 0) {
+                                DrawTexturePro(
+                                    enemyTexture,
+                                    (Rectangle){ 0, 0, static_cast<float>(enemyTexture.width), static_cast<float>(enemyTexture.height) },
+                                    (Rectangle){ state.current.x, state.current.y, state.current.width, state.current.height },
+                                    (Vector2){ 0, 0 },
+                                    0.0f,
+                                    WHITE
+                                );
+                            } else {
+                                // Fallback to rectangle if texture failed to load
+                                DrawRectangle(
+                                    state.current.x,
+                                    state.current.y,
+                                    state.current.width,
+                                    state.current.height,
+                                    RED
+                                );
+                            }
+                        }
+                    }
+
                     EndDrawing();
                 }
 
@@ -1409,6 +1575,9 @@ int client_main() {
             UnloadTexture(player2);
             UnloadTexture(player3);
             UnloadTexture(player4);
+            if (enemyTexture.id != 0) {
+                UnloadTexture(enemyTexture);
+            }
         } catch (const std::exception& e) {
             std::cout << "May be a problem with unloading textures: " << e.what() << std::endl;
         }

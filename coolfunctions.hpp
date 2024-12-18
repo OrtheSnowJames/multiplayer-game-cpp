@@ -94,4 +94,31 @@ public:
     float get() const { return value; }
 };
 
+class Timer {
+public:
+    Timer(double duration_seconds) 
+        : duration_(std::chrono::duration<double>(duration_seconds)),
+          start_time_(std::chrono::high_resolution_clock::now()) {}
+
+    bool has_time_elapsed() {
+        auto now = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = now - start_time_;
+        return elapsed >= duration_;
+    }
+
+    void reset() {
+        start_time_ = std::chrono::high_resolution_clock::now();
+    }
+
+    double time_left() const {
+        auto now = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = now - start_time_;
+        return (duration_ - elapsed).count();
+    }
+
+private:
+    std::chrono::duration<double> duration_;
+    std::chrono::high_resolution_clock::time_point start_time_;
+};
+
 #endif
