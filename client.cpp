@@ -1372,7 +1372,6 @@ int client_main() {
                         wKeyPressed = false;
                         wKeyStuck = false;
                     }
-
                     if ((keys["s"] || IsButtonPressed(buttonS, mousePoint)) && canMove["s"]) {
                         checklist["goingdown"] = true; 
                         checklist["y"] = prevY + moveSpeed;

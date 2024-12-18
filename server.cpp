@@ -68,14 +68,14 @@ json game = {
             {{"x", 350}, {"y", 159}, {"width", 177}, {"height", 74}, {"objID", 2}},
             {{"x", 524}, {"y", 162}, {"width", 205}, {"height", 60}, {"objID", 3}}
         })},
-        {"enemies", {}}
+        {"enemies", json::array()}
     }},
     {"room2", {
         {"players", {}},
         {"objects", json::array({
             {{"x", 410}, {"y", 0}, {"width", 93}, {"height", 286}, {"objID", 4}}
         })},
-        {"enemies", {}}
+        {"enemies", json::array()}
     }}
 };
 
