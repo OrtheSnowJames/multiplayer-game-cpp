@@ -488,17 +488,22 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                             int enemyId = enemyData["id"].get<int>();
                             
                             // Initialize or update enemy state with interpolation
-                            if (enemyStates.find(enemyId) == enemyStates.end()) {
-                                enemyStates[enemyId] = EnemyState();
-                                enemyStates[enemyId].id = enemyId;
-                                // Set initial position
-                                enemyStates[enemyId].current = Position(
-                                    static_cast<float>(enemyData["x"].get<int>()),
-                                    static_cast<float>(enemyData["y"].get<int>()),
-                                    static_cast<float>(enemyData["width"].get<int>()),
-                                    static_cast<float>(enemyData["height"].get<int>())
-                                );
-                            }
+                            enemyStates[enemyId] = EnemyState{
+                                .current = Position{
+                                    enemyData["x"].get<float>(),
+                                    enemyData["y"].get<float>(),
+                                    enemyData["width"].get<float>(),
+                                    enemyData["height"].get<float>()
+                                },
+                                .target = Position{
+                                    enemyData["x"].get<float>(),
+                                    enemyData["y"].get<float>(),
+                                    enemyData["width"].get<float>(),
+                                    enemyData["height"].get<float>()
+                                },
+                                .id = enemyId,
+                                .room = enemyData["room"].get<int>()
+                            };
                             
                             // Update target position for interpolation
                             enemyStates[enemyId].target = Position(

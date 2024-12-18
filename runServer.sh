@@ -11,7 +11,9 @@ if [ ${xtermInstalled} == "y" ]; then
     rm server
     cp build/server .
     chmod +x ./server
+    cd assets
     chmod 644 *.png
+    cd ..
     ./server
 else
     read -p "Do you have pacman or apt installed? [y/n]: " packageManager
