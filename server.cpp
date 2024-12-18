@@ -73,7 +73,6 @@ int castWinsock(tcp::socket& socket) {
     return intHandle;
 }
 
-// Logging and error handling
 enum LogLevel { INFO, ERROR, DEBUG };
 void logToFile(const std::string& message, LogLevel level = INFO) {
     static const std::map<LogLevel, std::string> levelNames = {
@@ -86,12 +85,6 @@ void logToFile(const std::string& message, LogLevel level = INFO) {
     timeStr.erase(std::remove(timeStr.begin(), timeStr.end(), '\n'), timeStr.end());
 
     logFile << "[" << levelNames.at(level) << "] " << timeStr << " " << message << std::endl;
-}
-
-void reportError(const std::string& message){
-    logToFile(message, ERROR);
-    std::cerr << message << std::endl;
-    return;
 }
 
 bool checkCollision(const json& object1, const json& object2) {
@@ -115,7 +108,7 @@ bool checkCollision(const json& object1, const json& object2) {
     return !(left1 > right2 || right1 < left2 || top1 > bottom2 || bottom1 < top2);
 }
 
-bool findPlayer(std::string name) {
+bool findPlayer(const std::string& name) {
     for (auto& room : game.items()) {
         if (room.value().contains("players")) {
             for (auto& player : room.value()["players"]) {
@@ -209,7 +202,7 @@ void eraseUser(int id) {
         }
     } catch (const std::exception& e) {
         std::cerr << "Error in eraseUser: " << e.what() << std::endl;
-        logToFile("Error in eraseUser: " + std::string(e.what()), ERROR);
+        logToFile(std::string("Error in eraseUser: ") + e.what(), ERROR);
     }
 }
 
@@ -259,7 +252,6 @@ void broadcastMessage(const json& message) {
             it = connected_sockets.erase(it);
         }
     }
-    game = game;
 }
 
 void switchRoom(json& player, const std::string& newRoom) {
@@ -328,9 +320,10 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
         
         // Initial connection
         if (messageJson.contains("currentName")) {
-            std::string name;
             std::string requestedName = messageJson["currentName"].get<std::string>();
+            std::string name = requestedName;
             if (findPlayer(requestedName)) {
+                // If name exists, find a unique variant
                 for (int i = 1; i < 100; i++) {
                     std::string newName = requestedName + std::to_string(i);
                     if (!findPlayer(newName)) {
@@ -338,13 +331,15 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                         break;
                     }
                 }
-            } else {
-                name = requestedName;
             }
+
             json newPlayer = createUser(name, sockID);
             newPlayer["local"] = true;
-            game["room1"]["players"].push_back(newPlayer);
-            
+            {
+                std::lock_guard<std::mutex> lock(game_mutex);
+                game["room1"]["players"].push_back(newPlayer);
+            }
+
             json localResponse = newPlayer;
             boost::asio::write(socket, boost::asio::buffer(localResponse.dump() + "\n"));
 
@@ -367,42 +362,45 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
             int newY = messageJson.value("y", -1);
             int spriteState = messageJson.value("spriteState", 1);
 
-            for (auto& p : game[roomName]["players"]) {
-                if (p["socket"].get<int>() == sockID) {
-                    if (messageJson.contains("spriteState")) {
-                        p["spriteState"] = spriteState;
-                        changed = true;
+            {
+                std::lock_guard<std::mutex> lock(game_mutex);
+                for (auto& p : game[roomName]["players"]) {
+                    if (p["socket"].get<int>() == sockID) {
+                        if (messageJson.contains("spriteState")) {
+                            p["spriteState"] = spriteState;
+                            changed = true;
+                        }
+                        if (messageJson.contains("x")) {
+                            p["x"] = newX;
+                            changed = true;
+                        }
+                        if (messageJson.contains("y")) {
+                            p["y"] = newY;
+                            changed = true;
+                        }
+                        break;
                     }
-                    if (messageJson.contains("x")) {
-                        p["x"] = newX;
-                        changed = true;
-                    }
-                    if (messageJson.contains("y")) {
-                        p["y"] = newY;
-                        changed = true;
-                    }
-                    break;
                 }
             }
 
             if (messageJson.contains("room") && lookForPlayer(socket)["room"].get<int>() != messageJson["room"].get<int>()) {
                 json player = lookForPlayer(socket);
                 std::string newRoomName = "room" + std::to_string(messageJson["room"].get<int>());
-
-                player["room"] = messageJson["room"].get<int>();
-                if (player["room"].get<int>() == 1) {player["x"] = 90; player["y"] = 90;}
-                else {player["x"] = 100; player["y"] = 100;}
-
-                if (!game.contains(newRoomName)) {
-                    game[newRoomName] = {
-                        {"players", json::array()},
-                        {"objects", json::array()},
-                        {"enemies", json::array()}
-                    };
-                }
-
-                // Remove from old room
                 {
+                    std::lock_guard<std::mutex> lock(game_mutex);
+                    player["room"] = messageJson["room"].get<int>();
+                    if (player["room"].get<int>() == 1) {player["x"] = 90; player["y"] = 90;}
+                    else {player["x"] = 100; player["y"] = 100;}
+
+                    if (!game.contains(newRoomName)) {
+                        game[newRoomName] = {
+                            {"players", json::array()},
+                            {"objects", json::array()},
+                            {"enemies", json::array()}
+                        };
+                    }
+
+                    // Remove from old room
                     std::string oldRoomName = roomName;
                     auto& oldRoomPlayers = game[oldRoomName]["players"];
                     oldRoomPlayers.erase(
@@ -413,10 +411,10 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
                         ),
                         oldRoomPlayers.end()
                     );
-                }
 
-                // Add to new room
-                game[newRoomName]["players"].push_back(player);
+                    // Add to new room
+                    game[newRoomName]["players"].push_back(player);
+                }
 
                 json gameUpdate = {{"getGame", game}};
                 broadcastMessage(gameUpdate);
@@ -449,7 +447,7 @@ void handleMessage(const std::string& message, tcp::socket& socket) {
 
     } catch (const std::exception& e) {
         std::cerr << "Error in handleMessage: " << e.what() << std::endl;
-        logToFile("Error in handleMessage: " + std::string(e.what()), ERROR);
+        logToFile(std::string("Error in handleMessage: ") + e.what(), ERROR);
     }
 }
 
@@ -518,11 +516,23 @@ void enemyThread() {
             }
         } catch (const std::exception& e) {
             std::cerr << "Error in enemy thread: " << e.what() << std::endl;
-            logToFile("Error in enemy thread: " + std::string(e.what()), ERROR);
+            logToFile(std::string("Error in enemy thread: ") + e.what(), ERROR);
         }
     }
     std::cout << "Enemy thread stopping" << std::endl;
     logToFile("Enemy thread stopping", INFO);
+}
+
+std::shared_ptr<tcp::socket> getSocketFromId(int socketId) {
+    std::lock_guard<std::mutex> lock(socket_mutex);
+    auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
+        [socketId](const std::shared_ptr<tcp::socket>& s) {
+            return s && s->is_open() && s->native_handle() == socketId;
+        });
+    if (it != connected_sockets.end()) {
+        return *it;
+    }
+    return nullptr;
 }
 
 void startServer(int port) {
@@ -530,7 +540,6 @@ void startServer(int port) {
     acceptor.open(tcp::v4());
     acceptor.set_option(tcp::acceptor::reuse_address(true));
     
-    // Try multiple ports if initial port is in use
     const int MAX_PORT_ATTEMPTS = 10;
     int currentPort = port;
     bool bound = false;
@@ -563,33 +572,40 @@ void startServer(int port) {
     acceptConnections(acceptor);
 }
 
-// Helper function to get a socket from an ID
-std::shared_ptr<tcp::socket> getSocketFromId(int socketId) {
-    std::lock_guard<std::mutex> lock(socket_mutex);
-    auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
-        [socketId](const std::shared_ptr<tcp::socket>& s) {
-            return s && s->is_open() && s->native_handle() == socketId;
-        });
-    if (it != connected_sockets.end()) {
-        return *it;
-    }
-    return nullptr;
-}
-
-// CLI thread to handle commands: "quit", "kick", "game"
 void cliThread() {
+    // CLI loop that doesn't break the server if no input is given.
     while (!shouldClose) {
-        std::cout << "> ";
+        std::cout << "> " << std::flush;
+        
+        // Use a timed wait approach for input. If no input, just continue.
+        // This prevents the server from shutting down if stdin closes.
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        
+        struct timeval timeout;
+        timeout.tv_sec = 5; // Wait 5 seconds for input
+        timeout.tv_usec = 0;
+        
+        int ret = select(STDIN_FILENO+1, &fds, NULL, NULL, &timeout);
+        if (ret == -1) {
+            // Error in select, just continue.
+            continue;
+        } else if (ret == 0) {
+            // No input within 5 seconds, just loop again
+            continue;
+        }
+        
+        // There is input available
         std::string input;
         if(!std::getline(std::cin, input)) {
-            // If EOF or error, just break the loop
-            break;
+            // If EOF or error reading input, just continue looping
+            continue;
         }
 
         if (input == "quit" || input == "^C") {
             shouldClose = true;
             io_context.stop();
-            // Broadcast quit if you want
             json quitMessage = {{"quitGame", true}};
             broadcastMessage(quitMessage);
             break;
@@ -610,14 +626,13 @@ void cliThread() {
             std::cout << "Enter player ID to kick: ";
             std::string kickInput;
             if (!std::getline(std::cin, kickInput)) {
-                continue; // If no input given
+                continue;
             }
 
             try {
                 int kickId = std::stoi(kickInput);
                 {
                     std::lock_guard<std::mutex> lock(game_mutex);
-                    // Remove player from all rooms
                     bool playerFound = false;
                     for (auto& room : game.items()) {
                         if (room.value().contains("players")) {
@@ -674,23 +689,25 @@ int main() {
     int port = getEnvVar<int>("PORT", 5767);
     std::cout << "Starting server on port " << port << "..." << std::endl;
 
-    setupSignalHandlers();
     startServer(port);
 
     // Start background threads
     std::thread(enemyThread).detach();
     std::thread(shieldThread).detach();
-
+    
     // Start CLI thread for debugging
     std::thread commandThread(cliThread);
 
     // Run until stopped by signal or quit command
     io_context.run();
 
-    // Wait for CLI thread to finish
+    // Wait for CLI thread to finish before exiting
     if (commandThread.joinable()) {
         commandThread.join();
     }
 
+    std::cout << "Server shutting down..." << std::endl;
+    setupSignalHandlers();
+    std::cout << "Server stopped" << std::endl;
     return 0;
 }
