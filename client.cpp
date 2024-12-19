@@ -302,6 +302,10 @@ struct PlayerState {
     int spriteState = 0;
     std::string name;
     int socketId;
+    //add delete function:
+    void deletePlayer(int id) {
+        playerStates.erase(id);
+    }
     int room = 1;  // Add room tracking, default to room1
     
     void update(float dt) {
@@ -520,6 +524,42 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 } catch (const std::exception& e) {
                     std::cerr << "Error processing non-local player: " << e.what() << std::endl;
                     logToFile("Non-local player processing error: " + std::string(e.what()), ERROR);
+                }
+            }
+
+            if (messageJson.contains("playerLeft")) {
+                int socketId = messageJson["playerLeft"].get<int>();
+                if (playerStates.find(socketId) != playerStates.end()) {
+                    playerStates.erase(socketId);
+                }
+                //delete player from game
+                for (auto& room : game.items()) {
+                    if (room.value().contains("players")) {
+                        auto& players = room.value()["players"];
+                        auto it = std::remove_if(players.begin(), players.end(),
+                            [&socketId](const json& p) {
+                                cout << "farewell, " << p["name"] << endl;
+                                return p["socket"] == socketId;
+                            });
+                        players.erase(it, players.end());
+                    }
+                }
+            }
+
+            if (messageJson.contains("switchRoom")) {
+                int socketId = messageJson["switchRoom"]["socket"].get<int>();
+                int newRoom = messageJson["switchRoom"]["room"].get<int>();
+                if (playerStates.find(socketId) != playerStates.end()) {
+                    playerStates[socketId].room = newRoom;
+                }
+                std::string oldRoomName = "room" + std::to_string(playerStates[socketId].room);
+                std::string newRoomName = "room" + std::to_string(newRoom);
+                for (auto& p : game[oldRoomName]["players"]) {
+                    if (p["socket"] == socketId) {
+                        p["room"] = newRoom;
+                        game[newRoomName]["players"].push_back(p);
+                        game[oldRoomName]["players"].erase(p);
+                    }
                 }
             }
 

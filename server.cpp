@@ -177,33 +177,50 @@ json createEnemy(int room) {
 }
 
 void eraseUser(int id) {
-    std::lock_guard<std::mutex> lock(game_mutex);
     try {
+        // First remove from game state
+        {
+            std::lock_guard<std::mutex> lock(game_mutex);
+            for (auto& room : game.items()) {
+                if (room.value().contains("players")) {
+                    auto& players = room.value()["players"];
+                    players.erase(
+                        std::remove_if(players.begin(), players.end(),
+                            [id](const json& p) { 
+                                return p.contains("socket") && p["socket"].get<int>() == id; 
+                            }
+                        ),
+                        players.end()
+                    );
+                }
+            }
+        }
+
+        // Then handle socket cleanup
         {
             std::lock_guard<std::mutex> socket_lock(socket_mutex);
-            auto it = std::remove_if(connected_sockets.begin(), connected_sockets.end(),
+            auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
                 [id](const std::shared_ptr<tcp::socket>& socket) {
                     return socket && socket->native_handle() == id;
                 });
-            connected_sockets.erase(it, connected_sockets.end());
-        }
-
-        for (auto& room : game.items()) {
-            if (room.value().contains("players")) {
-                auto& players = room.value()["players"];
-                players.erase(
-                    std::remove_if(players.begin(), players.end(),
-                        [id](const json& p) { 
-                            return p.contains("socket") && p["socket"].get<int>() == id; 
-                        }
-                    ),
-                    players.end()
-                );
+                
+            if (it != connected_sockets.end()) {
+                if ((*it)->is_open()) {
+                    boost::system::error_code ec;
+                    (*it)->shutdown(tcp::socket::shutdown_both, ec);
+                    (*it)->close(ec);
+                }
+                connected_sockets.erase(it);
             }
         }
+
+        // Broadcast updated game state
+        json pUpdate = {{"playerLeft", id}};
+        broadcastMessage(pUpdate);
+        
+        logToFile("User " + std::to_string(id) + " removed successfully", INFO);
     } catch (const std::exception& e) {
-        std::cerr << "Error in eraseUser: " << e.what() << std::endl;
-        logToFile(std::string("Error in eraseUser: ") + e.what(), ERROR);
+        logToFile("Error in eraseUser: " + std::string(e.what()), ERROR);
     }
 }
 
@@ -236,22 +253,33 @@ json lookForPlayer(tcp::socket& socket) {
 }
 
 void broadcastMessage(const json& message) {
-    std::lock_guard<std::mutex> lock(game_mutex);
     std::string compact = message.dump() + "\n";
-    auto it = connected_sockets.begin();
-    while (it != connected_sockets.end()) {
-        try {
-            if ((*it)->is_open()) {
-                boost::asio::write(**it, boost::asio::buffer(compact));
-                ++it;
-            } else {
-                eraseUser((*it)->native_handle());
-                it = connected_sockets.erase(it);
+    std::vector<int> invalidSockets;
+
+    {
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        for (const auto& socket : connected_sockets) {
+            try {
+                if (socket && socket->is_open()) {
+                    boost::system::error_code ec;
+                    boost::asio::write(*socket, boost::asio::buffer(compact), ec);
+                    if (ec) {
+                        invalidSockets.push_back(socket->native_handle());
+                    }
+                } else if (socket) {
+                    invalidSockets.push_back(socket->native_handle());
+                }
+            } catch (const std::exception& e) {
+                if (socket) {
+                    invalidSockets.push_back(socket->native_handle());
+                }
+                logToFile("Error broadcasting message: " + std::string(e.what()), ERROR);
             }
-        } catch (...) {
-            eraseUser((*it)->native_handle());
-            it = connected_sockets.erase(it);
         }
+    }
+    //clean up sockets
+    for (int socketId : invalidSockets) {
+        eraseUser(socketId);
     }
 }
 
@@ -268,7 +296,7 @@ void switchRoom(json& player, const std::string& newRoom) {
         }
     }
     game[newRoom]["players"].push_back(player);
-    json updateMessage = {{"getGame", game}};
+    json updateMessage = {{"switchRoom", {{"socket", player["socket"], {"room", std::stoi(newRoom.substr(4))}}}}};
     broadcastMessage(updateMessage);
 }
 
@@ -306,6 +334,7 @@ void shieldThread() {
             {
                 std::lock_guard<std::mutex> lock(game_mutex);
                 game["room2"]["objects"].push_back(createShield());
+                //TODO: make more getgames replaced with more efficent methoods
                 json gameUpdate = {{"getGame", game}};
                 broadcastMessage(gameUpdate);
             }
@@ -807,20 +836,26 @@ int main() {
 
         // Start worker threads
         std::vector<std::thread> threads;
+        
+        // Start CLI thread first
+        threads.emplace_back(cliThread);
+        
+        // Start server in separate thread
+        threads.emplace_back([port]() {
+            try {
+                startServer(port);
+            } catch (const std::exception& e) {
+                logToFile("Server thread error: " + std::string(e.what()), ERROR);
+            }
+        });
+
+        //start worker threads
         threads.emplace_back(enemyThread);
         threads.emplace_back(shieldThread);
         threads.emplace_back(heartbeatThread);
-        threads.emplace_back(cliThread);
 
-        // Start server
-        startServer(port);
-        
-        std::cout << "Server startup complete - ready for connections" << std::endl;
-        logToFile("Server startup complete", INFO);
-
-        // Run io_context with periodic checks
         while (!isShuttingDown) {
-            io_context.run_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         
         cleanup();
