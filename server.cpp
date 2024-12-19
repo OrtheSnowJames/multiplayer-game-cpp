@@ -603,34 +603,32 @@ void startServer(int port) {
         acceptor.set_option(tcp::acceptor::reuse_address(true));
         acceptor.set_option(tcp::acceptor::keep_alive(true));
         
-        // Try to bind to specific port
+        // Bind to any address (0.0.0.0)
+        tcp::endpoint endpoint(boost::asio::ip::address_v4::any(), port);
         boost::system::error_code ec;
-        tcp::endpoint endpoint(tcp::v4(), port);
+        
+        std::cout << "Attempting to bind to 0.0.0.0:" << port << std::endl;
         acceptor.bind(endpoint, ec);
         
         if (ec) {
+            std::cerr << "Bind error: " << ec.message() << std::endl;
             throw std::runtime_error("Failed to bind to port " + std::to_string(port) + ": " + ec.message());
         }
         
-        // Start listening
         acceptor.listen(boost::asio::socket_base::max_listen_connections, ec);
         if (ec) {
-            throw std::runtime_error("Failed to listen on port " + std::to_string(port) + ": " + ec.message());
+            throw std::runtime_error("Failed to listen: " + ec.message());
         }
 
-        // Verify the server is actually listening
         auto localEndpoint = acceptor.local_endpoint(ec);
-        if (ec) {
-            throw std::runtime_error("Failed to get local endpoint: " + ec.message());
-        }
-
         std::cout << "Server is listening on " << localEndpoint.address().to_string() 
                   << ":" << localEndpoint.port() << std::endl;
-        logToFile("Server bound and listening on " + localEndpoint.address().to_string() + 
-                  ":" + std::to_string(localEndpoint.port()), INFO);
-
+        
         // Start accepting connections
         acceptConnections(acceptor);
+        
+        // Keep io_context running
+        io_context.run();
         
     } catch (const std::exception& e) {
         logToFile("Server startup failed: " + std::string(e.what()), ERROR);
@@ -799,7 +797,7 @@ void setupSignalHandlers() {
 
 int main() {
     try {
-        int port = getEnvVar<int>("PORT", 5767);
+        int port = getEnvVar<int>("PORT", 5766);
         std::cout << "Starting server on port " + std::to_string(port) << std::endl;
         logToFile("Initializing server on port " + std::to_string(port), INFO);
 
