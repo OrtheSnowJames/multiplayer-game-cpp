@@ -302,10 +302,6 @@ struct PlayerState {
     int spriteState = 0;
     std::string name;
     int socketId;
-    //add delete function:
-    void deletePlayer(int id) {
-        playerStates.erase(id);
-    }
     int room = 1;  // Add room tracking, default to room1
     
     void update(float dt) {

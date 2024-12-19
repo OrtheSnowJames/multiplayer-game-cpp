@@ -14,6 +14,8 @@
 #include <filesystem>
 #include <map>
 #include <algorithm>
+#include <string> // For std::to_string
+
 #include "libs/enemy.hpp"
 #include "coolfunctions.hpp"
 #include <websocketpp/server.hpp>
@@ -114,13 +116,77 @@ bool findPlayer(const std::string& name) {
             for (auto& player : room.value()["players"]) {
                 if (player["name"] == name) {
                     return true;
-                    }
                 }
             }
         }
-        return false;
+    }
+    return false;
+}
+
+WebSocketServer wss;
+std::vector<websocketpp::connection_hdl> ws_connections;
+std::mutex ws_mutex;
+
+// Forward declarations
+void eraseUser(int id);
+
+// Function to send messages over WebSockets
+void sendWebSocketMessage(websocketpp::connection_hdl hdl, const std::string& message) {
+    try {
+        wss.send(hdl, message, websocketpp::frame::opcode::text);
+    } catch (const std::exception& e) {
+        logToFile("WebSocket send error: " + std::string(e.what()), ERROR);
+    }
+}
+
+
+void broadcastMessage(const json& message) {
+    std::string compact = message.dump() + "\n";
+    std::vector<int> invalidSockets;
+
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        for (const auto& socket : connected_sockets) {
+            try {
+                if (socket && socket->is_open()) {
+                    boost::system::error_code ec;
+                    boost::asio::write(*socket, boost::asio::buffer(compact), ec);
+                    if (ec) {
+                        invalidSockets.push_back(castWinsock(*socket));
+                    }
+                } else if (socket) {
+                    invalidSockets.push_back(castWinsock(*socket));
+                }
+            } catch (const std::exception& e) {
+                if (socket) {
+                    invalidSockets.push_back(castWinsock(*socket));
+                }
+                logToFile("Error broadcasting TCP message: " + std::string(e.what()), ERROR);
+            }
     }
 
+    // WebSocket broadcast
+    {
+        std::lock_guard<std::mutex> lock(ws_mutex);
+        auto it = ws_connections.begin();
+        while (it != ws_connections.end()) {
+            try {
+                if (wss.get_con_from_hdl(*it)->get_state() == websocketpp::session::state::open) {
+                    sendWebSocketMessage(*it, compact);
+                    ++it;
+                } else {
+                    it = ws_connections.erase(it);
+                }
+            } catch (...) {
+                it = ws_connections.erase(it);
+            }
+        }
+    }
+
+    // Clean up invalid TCP sockets
+    for (int socketId : invalidSockets) {
+        eraseUser(socketId);
+    }
+}
 
 json createUserRaw(const std::string& name, int fid) {
     std::random_device rd;
@@ -178,7 +244,25 @@ json createEnemy(int room) {
 
 void eraseUser(int id) {
     try {
-        // First remove from game state
+        // First send quit message to the disconnecting player
+        {
+            std::lock_guard<std::mutex> socket_lock(socket_mutex);
+            auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
+                [id](const std::shared_ptr<tcp::socket>& socket) {
+                    return socket && castWinsock(*socket) == id;
+                });
+                
+            if (it != connected_sockets.end() && (*it)->is_open()) {
+                try {
+                    json quitMessage = {{"quitGame", true}};
+                    boost::asio::write(**it, boost::asio::buffer(quitMessage.dump() + "\n"));
+                } catch (...) {
+                    // Ignore write errors during disconnect
+                }
+            }
+        }
+
+        // Remove from game state
         {
             std::lock_guard<std::mutex> lock(game_mutex);
             for (auto& room : game.items()) {
@@ -196,12 +280,12 @@ void eraseUser(int id) {
             }
         }
 
-        // Then handle socket cleanup
+        // Clean up socket and remove from connected_sockets
         {
             std::lock_guard<std::mutex> socket_lock(socket_mutex);
             auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
                 [id](const std::shared_ptr<tcp::socket>& socket) {
-                    return socket && socket->native_handle() == id;
+                    return socket && castWinsock(*socket) == id;
                 });
                 
             if (it != connected_sockets.end()) {
@@ -214,11 +298,11 @@ void eraseUser(int id) {
             }
         }
 
-        // Broadcast updated game state
-        json pUpdate = {{"playerLeft", id}};
-        broadcastMessage(pUpdate);
+        // Notify remaining players about the disconnection
+        json playerLeftMessage = {{"playerLeft", id}};
+        broadcastMessage(playerLeftMessage);
         
-        logToFile("User " + std::to_string(id) + " removed successfully", INFO);
+        logToFile("User " + std::to_string(id) + " disconnected and removed successfully", INFO);
     } catch (const std::exception& e) {
         logToFile("Error in eraseUser: " + std::string(e.what()), ERROR);
     }
@@ -252,35 +336,36 @@ json lookForPlayer(tcp::socket& socket) {
     return {{"error", "player not found"}};
 }
 
-void broadcastMessage(const json& message) {
-    std::string compact = message.dump() + "\n";
-    std::vector<int> invalidSockets;
-
-    {
-        std::lock_guard<std::mutex> lock(socket_mutex);
-        for (const auto& socket : connected_sockets) {
-            try {
-                if (socket && socket->is_open()) {
-                    boost::system::error_code ec;
-                    boost::asio::write(*socket, boost::asio::buffer(compact), ec);
-                    if (ec) {
-                        invalidSockets.push_back(socket->native_handle());
-                    }
-                } else if (socket) {
-                    invalidSockets.push_back(socket->native_handle());
-                }
-            } catch (const std::exception& e) {
-                if (socket) {
-                    invalidSockets.push_back(socket->native_handle());
-                }
-                logToFile("Error broadcasting message: " + std::string(e.what()), ERROR);
+void printCurrentPlayers() {
+    std::cout << "Current players:\n";
+    for (auto& room : game.items()) {
+        if (room.value().contains("players")) {
+            for (auto& player : room.value()["players"]) {
+                // Print player's name and socket (instead of id which doesn't exist)
+                std::cout << player["name"].get<std::string>() << " - " 
+                          << player["socket"].get<int>() << std::endl;
             }
         }
     }
-    //clean up sockets
-    for (int socketId : invalidSockets) {
-        eraseUser(socketId);
-    }
+}
+
+void sendWebSocketMessage(websocketpp::connection_hdl, const std::string&); // forward declaration if needed
+
+void onWebSocketMessage(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr msg);
+
+void onWebSocketOpen(websocketpp::connection_hdl hdl) {
+    std::lock_guard<std::mutex> lock(ws_mutex);
+    ws_connections.push_back(hdl);
+    std::cout << "New WebSocket connection!" << std::endl;
+}
+
+void onWebSocketClose(websocketpp::connection_hdl hdl) {
+    std::lock_guard<std::mutex> lock(ws_mutex);
+    ws_connections.erase(
+        std::remove_if(ws_connections.begin(), ws_connections.end(),
+            [hdl](websocketpp::connection_hdl h) { return !h.owner_before(hdl) && !hdl.owner_before(h); }),
+        ws_connections.end()
+    );
 }
 
 void switchRoom(json& player, const std::string& newRoom) {
@@ -296,7 +381,7 @@ void switchRoom(json& player, const std::string& newRoom) {
         }
     }
     game[newRoom]["players"].push_back(player);
-    json updateMessage = {{"switchRoom", {{"socket", player["socket"], {"room", std::stoi(newRoom.substr(4))}}}}};
+    json updateMessage = {{"switchRoom", {{"socket", player["socket"]}, {"room", std::stoi(newRoom.substr(4))}}}};
     broadcastMessage(updateMessage);
 }
 
@@ -328,18 +413,29 @@ bool shieldExists() {
     return false;
 }
 
+void handleMessage(const std::string& message, tcp::socket& socket);
+
 void shieldThread() {
     while (!shouldClose) {
         if (playersInRoom("room2") && !shieldExists()) {
             {
                 std::lock_guard<std::mutex> lock(game_mutex);
                 game["room2"]["objects"].push_back(createShield());
-                //TODO: make more getgames replaced with more efficent methoods
                 json gameUpdate = {{"getGame", game}};
                 broadcastMessage(gameUpdate);
             }
         }
         std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+}
+
+void onWebSocketMessage(websocketpp::connection_hdl hdl, WebSocketServer::message_ptr msg) {
+    try {
+        // Create a dummy TCP socket for compatibility with existing code
+        tcp::socket dummy_socket(io_context);
+        handleMessage(msg->get_payload(), dummy_socket);
+    } catch (const std::exception& e) {
+        logToFile("WebSocket message handling error: " + std::string(e.what()), ERROR);
     }
 }
 
@@ -491,7 +587,7 @@ void startReading(std::shared_ptr<tcp::socket> socket) {
             handleMessage(message, *socket);
             startReading(socket);
         } else {
-            eraseUser(socket->native_handle());
+            eraseUser(castWinsock(*socket));
             socket->close();
         }
     });
@@ -572,11 +668,11 @@ void heartbeatThread() {
                     boost::asio::write(**it, boost::asio::buffer(heartbeat.dump() + "\n"));
                     ++it;
                 } else {
-                    eraseUser((*it)->native_handle());
+                    eraseUser(castWinsock(**it));
                     it = connected_sockets.erase(it);
                 }
             } catch (...) {
-                eraseUser((*it)->native_handle());
+                eraseUser(castWinsock(**it));
                 it = connected_sockets.erase(it);
             }
         }
@@ -617,7 +713,7 @@ std::shared_ptr<tcp::socket> getSocketFromId(int socketId) {
     std::lock_guard<std::mutex> lock(socket_mutex);
     auto it = std::find_if(connected_sockets.begin(), connected_sockets.end(),
         [socketId](const std::shared_ptr<tcp::socket>& s) {
-            return s && s->is_open() && s->native_handle() == socketId;
+            return s && s->is_open() && castWinsock(*s) == socketId;
         });
     if (it != connected_sockets.end()) {
         return *it;
@@ -666,10 +762,29 @@ void startServer(int port) {
     }
 }
 
+void kickPlayer(int playerId) {
+    std::shared_ptr<tcp::socket> socket = getSocketFromId(playerId);
+    if (socket) {
+        json leaveMessage = {{"quitGame", true}};
+        json othermessage = {{"playerLeft", playerId}};
+        boost::asio::write(*socket, boost::asio::buffer(leaveMessage.dump() + "\n"));
+        socket->close();
+        broadcastMessage(othermessage);
+        eraseUser(playerId);
+    } else {
+        std::cout << "Player with ID " << playerId << " not found" << std::endl;
+    }
+}
+
 void cliThread() {
-    std::cout << "> " << std::flush;
-    
+    bool expectingKickId = false;  // tracks if we're waiting for a second input for 'kick' command
+
     while (!isShuttingDown && !shouldClose) {
+        // Print main prompt only if not expecting a second response
+        if (!expectingKickId) {
+            std::cout << "> " << std::flush;
+        }
+
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
@@ -681,14 +796,30 @@ void cliThread() {
         int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &timeout);
         if (ready <= 0) {
             if (isShuttingDown || shouldClose) break;
-            continue;
+            continue; 
         }
 
-        // There is input available
         std::string input;
         if (!std::getline(std::cin, input)) {
             std::cin.clear();
-            std::cout << "> " << std::flush;
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            expectingKickId = false;
+            continue;
+        }
+
+        if (expectingKickId) {
+            if (input.empty()) {
+                std::cout << "No input provided. Kick cancelled.\n";
+            } else {
+                try {
+                    int kickId = std::stoi(input);
+                    kickPlayer(kickId);
+                    std::cout << "Attempted to kick player with ID: " << kickId << "\n";
+                } catch (...) {
+                    std::cout << "Invalid player ID. Kick cancelled.\n";
+                }
+            }
+            expectingKickId = false; 
             continue;
         }
 
@@ -699,93 +830,25 @@ void cliThread() {
                 shouldClose = true;
             }
             shutdownCV.notify_all();
-            io_context.stop();
-            json quitMessage = {{"quitGame", true}};
-            broadcastMessage(quitMessage);
+            broadcastMessage({{"quitGame", true}});
             break;
 
         } else if (input == "kick") {
-            std::cout << "Current players:\n";
-            {
-                std::lock_guard<std::mutex> lock(game_mutex);
-                for (auto& room : game.items()) {
-                    if (room.value().contains("players")) {
-                        for (auto& player : room.value()["players"]) {
-                            std::cout << player["socket"].get<int>() << " - " 
-                                      << player["name"].get<std::string>() << std::endl;
-                        }
-                    }
-                }
-            }
-
-            std::cout << "Enter player ID to kick: ";
-            std::string kickInput;
-            if (!std::getline(std::cin, kickInput)) {
-                std::cin.clear();
-                //print prompt again for next command
-                std::cout << "> " << std::flush;
-                continue;
-            }
-
-            try {
-                int kickId = std::stoi(kickInput);
-                {
-                    std::lock_guard<std::mutex> lock(game_mutex);
-                    bool playerFound = false;
-                    for (auto& room : game.items()) {
-                        if (room.value().contains("players")) {
-                            auto& players = room.value()["players"];
-                            auto it = std::remove_if(players.begin(), players.end(),
-                                [kickId](const json& p) {
-                                    return p["socket"].get<int>() == kickId;
-                                });
-                            if (it != players.end()) {
-                                playerFound = true;
-                                // Attempt to send a quit message to the kicked player
-                                if (auto sock = getSocketFromId(kickId)) {
-                                    json kickedMessage = {{"quitGame", true}};
-                                    boost::asio::write(*sock, boost::asio::buffer(kickedMessage.dump() + "\n"));
-                                    sock->close();
-                                    {
-                                        std::lock_guard<std::mutex> sockLock(socket_mutex);
-                                        connected_sockets.erase(
-                                            std::remove_if(connected_sockets.begin(), connected_sockets.end(),
-                                                [kickId](const std::shared_ptr<tcp::socket>& s) {
-                                                    return s->native_handle() == kickId;
-                                                }
-                                            ),
-                                            connected_sockets.end()
-                                        );
-                                    }
-                                }
-                                players.erase(it, players.end());
-                            }
-                        }
-                    }
-                    if (playerFound) {
-                        json gameUpdate = {{"getGame", game}};
-                        broadcastMessage(gameUpdate);
-                        std::cout << "Player kicked successfully\n";
-                    } else {
-                        std::cout << "Player not found\n";
-                    }
-                }
-            } catch (...) {
-                std::cout << "Invalid player ID\n";
-            }
+            printCurrentPlayers();
+            std::cout << "Enter player ID to kick: " << std::flush;
+            expectingKickId = true; 
 
         } else if (input == "game") {
             std::lock_guard<std::mutex> lock(game_mutex);
             std::cout << "\n=== CURRENT GAME STATE ===\n";
-            std::cout << game.dump(2) << std::endl;
+            std::cout << game.dump(2) << std::endl; 
             std::cout << "========================\n\n";
-        }
 
-        // After handling a command, print the prompt again for the next command
-        std::cout << "> " << std::flush;
+        } else if (!input.empty()) {
+            std::cout << "Unknown command: " << input << "\n";
+        }
     }
 }
-
 
 void setupSignalHandlers() {
     static boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
@@ -795,23 +858,17 @@ void setupSignalHandlers() {
             std::cout << "\nReceived signal " << signal_number << ", initiating graceful shutdown..." << std::endl;
             logToFile("Received shutdown signal " + std::to_string(signal_number), INFO);
             
-            // Notify all clients
-            json shutdownMsg = {
-                {"quitGame", true}
-            };
+            json shutdownMsg = {{"quitGame", true}};
             broadcastMessage(shutdownMsg);
             
-            // Set shutdown flags
             {
                 std::lock_guard<std::mutex> lock(shutdownMutex);
                 isShuttingDown = true;
                 shouldClose = true;
             }
             
-            // Notify waiting threads
             shutdownCV.notify_all();
             
-            // Stop io_context
             io_context.stop();
         }
     });
@@ -832,15 +889,27 @@ int main() {
         std::cout << "Starting server on port " + std::to_string(port) << std::endl;
         logToFile("Initializing server on port " + std::to_string(port), INFO);
 
+        wss.clear_access_channels(websocketpp::log::alevel::all);
+        wss.set_access_channels(websocketpp::log::alevel::connect);
+        wss.set_access_channels(websocketpp::log::alevel::disconnect);
+        wss.set_access_channels(websocketpp::log::alevel::app);
+
+        wss.init_asio(&io_context);
+        wss.set_message_handler(std::bind(&onWebSocketMessage, std::placeholders::_1, std::placeholders::_2));
+        wss.set_open_handler(std::bind(&onWebSocketOpen, std::placeholders::_1));
+        wss.set_close_handler(std::bind(&onWebSocketClose, std::placeholders::_1));
+
+        wss.listen(port + 1); // WebSocket port is HTTP port + 1
+        wss.start_accept();
+
         setupSignalHandlers();
 
-        // Start worker threads
         std::vector<std::thread> threads;
         
-        // Start CLI thread first
+        // CLI thread
         threads.emplace_back(cliThread);
         
-        // Start server in separate thread
+        // Server thread
         threads.emplace_back([port]() {
             try {
                 startServer(port);
@@ -849,7 +918,6 @@ int main() {
             }
         });
 
-        //start worker threads
         threads.emplace_back(enemyThread);
         threads.emplace_back(shieldThread);
         threads.emplace_back(heartbeatThread);
@@ -860,7 +928,6 @@ int main() {
         
         cleanup();
         
-        auto start = std::chrono::steady_clock::now();
         for (auto& thread : threads) {
             if (thread.joinable()) {
                 std::future<void> future = std::async(std::launch::async, [&thread]() {
