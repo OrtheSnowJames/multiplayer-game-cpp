@@ -603,35 +603,33 @@ void startServer(int port) {
         acceptor.set_option(tcp::acceptor::reuse_address(true));
         acceptor.set_option(tcp::acceptor::keep_alive(true));
         
-        const int MAX_PORT_ATTEMPTS = 10;
-        int currentPort = port;
-        bool bound = false;
+        // Try to bind to specific port
+        boost::system::error_code ec;
+        tcp::endpoint endpoint(tcp::v4(), port);
+        acceptor.bind(endpoint, ec);
         
-        for(int attempt = 0; attempt < MAX_PORT_ATTEMPTS && !bound; attempt++) {
-            boost::system::error_code ec;
-            acceptor.bind(tcp::endpoint(tcp::v4(), currentPort), ec);
-            
-            if (!ec) {
-                bound = true;
-                logToFile("Successfully bound to port " + std::to_string(currentPort), INFO);
-                break;
-            }
-            
-            logToFile("Port " + std::to_string(currentPort) + " in use, trying next port", INFO);
-            currentPort++;
-            
-            acceptor.close();
-            acceptor.open(tcp::v4());
-            acceptor.set_option(tcp::acceptor::reuse_address(true));
-            acceptor.set_option(tcp::acceptor::keep_alive(true));
+        if (ec) {
+            throw std::runtime_error("Failed to bind to port " + std::to_string(port) + ": " + ec.message());
         }
         
-        if (!bound) {
-            throw std::runtime_error("Failed to find available port after " + 
-                                   std::to_string(MAX_PORT_ATTEMPTS) + " attempts");
+        // Start listening
+        acceptor.listen(boost::asio::socket_base::max_listen_connections, ec);
+        if (ec) {
+            throw std::runtime_error("Failed to listen on port " + std::to_string(port) + ": " + ec.message());
         }
-        
-        acceptor.listen();
+
+        // Verify the server is actually listening
+        auto localEndpoint = acceptor.local_endpoint(ec);
+        if (ec) {
+            throw std::runtime_error("Failed to get local endpoint: " + ec.message());
+        }
+
+        std::cout << "Server is listening on " << localEndpoint.address().to_string() 
+                  << ":" << localEndpoint.port() << std::endl;
+        logToFile("Server bound and listening on " + localEndpoint.address().to_string() + 
+                  ":" + std::to_string(localEndpoint.port()), INFO);
+
+        // Start accepting connections
         acceptConnections(acceptor);
         
     } catch (const std::exception& e) {
@@ -760,31 +758,73 @@ void cliThread() {
     }
 }
 
+void setupSignalHandlers() {
+    static boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    
+    signals.async_wait([](const boost::system::error_code& error, int signal_number) {
+        if (!error) {
+            std::cout << "\nReceived signal " << signal_number << ", initiating graceful shutdown..." << std::endl;
+            logToFile("Received shutdown signal " + std::to_string(signal_number), INFO);
+            
+            // Notify all clients
+            json shutdownMsg = {
+                {"quitGame", true}
+            };
+            broadcastMessage(shutdownMsg);
+            
+            // Set shutdown flags
+            {
+                std::lock_guard<std::mutex> lock(shutdownMutex);
+                isShuttingDown = true;
+                shouldClose = true;
+            }
+            
+            // Notify waiting threads
+            shutdownCV.notify_all();
+            
+            // Stop io_context
+            io_context.stop();
+        }
+    });
+    
+    // Re-register for future signals
+    signals.async_wait([](const boost::system::error_code& error, int signal_number) {
+        if (!error) {
+            std::cout << "\nForce shutdown initiated..." << std::endl;
+            logToFile("Force shutdown triggered", ERROR);
+            std::quick_exit(1);
+        }
+    });
+}
+
 int main() {
     try {
         int port = getEnvVar<int>("PORT", 5767);
-        logToFile("Starting server on port " + std::to_string(port), INFO);
+        std::cout << "Starting server on port " + std::to_string(port) << std::endl;
+        logToFile("Initializing server on port " + std::to_string(port), INFO);
 
+        setupSignalHandlers();
+
+        // Start worker threads
         std::vector<std::thread> threads;
-        
-        // Start threads before io_context
         threads.emplace_back(enemyThread);
         threads.emplace_back(shieldThread);
         threads.emplace_back(heartbeatThread);
         threads.emplace_back(cliThread);
 
+        // Start server
         startServer(port);
         
-        // Run io_context in this thread
+        std::cout << "Server startup complete - ready for connections" << std::endl;
+        logToFile("Server startup complete", INFO);
+
+        // Run io_context with periodic checks
         while (!isShuttingDown) {
             io_context.run_for(std::chrono::seconds(1));
         }
-
-        // Proper shutdown sequence
-        logToFile("Starting server shutdown", INFO);
+        
         cleanup();
         
-        // Wait for threads with timeout
         auto start = std::chrono::steady_clock::now();
         for (auto& thread : threads) {
             if (thread.joinable()) {
@@ -798,11 +838,9 @@ int main() {
                 }
             }
         }
-
-        logToFile("Server shutdown complete", INFO);
         return 0;
-        
     } catch (const std::exception& e) {
+        std::cerr << "Fatal server error: " << e.what() << std::endl;
         logToFile("Fatal server error: " + std::string(e.what()), ERROR);
         return 1;
     }

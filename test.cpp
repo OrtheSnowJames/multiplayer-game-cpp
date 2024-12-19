@@ -29,6 +29,10 @@ public:
     }
 };
 
+int test() {
+
+}
+
 int main() {
     std::cout << "Enter pairs in the format [x1,y1] [x2,y2] ... or type 'default' to use [[5,1],[4,5],[11,9],[9,4]]: ";
     std::string inputLine;
