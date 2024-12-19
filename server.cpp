@@ -114,12 +114,13 @@ bool findPlayer(const std::string& name) {
             for (auto& player : room.value()["players"]) {
                 if (player["name"] == name) {
                     return true;
+                    }
                 }
             }
         }
+        return false;
     }
-    return false;
-}
+
 
 json createUserRaw(const std::string& name, int fid) {
     std::random_device rd;
@@ -637,124 +638,125 @@ void startServer(int port) {
 }
 
 void cliThread() {
-    while (!isShuttingDown) {
-        // CLI loop that doesn't break the server if no input is given.
-        while (!shouldClose) {
+    std::cout << "> " << std::flush;
+    
+    while (!isShuttingDown && !shouldClose) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &timeout);
+        if (ready <= 0) {
+            if (isShuttingDown || shouldClose) break;
+            continue;
+        }
+
+        // There is input available
+        std::string input;
+        if (!std::getline(std::cin, input)) {
+            std::cin.clear();
             std::cout << "> " << std::flush;
-            
-            // Use a timed wait approach for input. If no input, just continue.
-            // This prevents the server from shutting down if stdin closes.
-            fd_set fds;
-            FD_ZERO(&fds);
-            FD_SET(STDIN_FILENO, &fds);
-            
-            struct timeval timeout;
-            timeout.tv_sec = 5; // Wait 5 seconds for input
-            timeout.tv_usec = 0;
-            
-            int ret = select(STDIN_FILENO+1, &fds, NULL, NULL, &timeout);
-            if (ret == -1) {
-                // Error in select, just continue.
-                continue;
-            } else if (ret == 0) {
-                // No input within 5 seconds, just loop again
-                continue;
+            continue;
+        }
+
+        if (input == "quit" || input == "^C") {
+            {
+                std::lock_guard<std::mutex> lock(shutdownMutex);
+                isShuttingDown = true;
+                shouldClose = true;
             }
-            
-            // There is input available
-            std::string input;
-            if(!std::getline(std::cin, input)) {
-                // If EOF or error reading input, just continue looping
+            shutdownCV.notify_all();
+            io_context.stop();
+            json quitMessage = {{"quitGame", true}};
+            broadcastMessage(quitMessage);
+            break;
+
+        } else if (input == "kick") {
+            std::cout << "Current players:\n";
+            {
+                std::lock_guard<std::mutex> lock(game_mutex);
+                for (auto& room : game.items()) {
+                    if (room.value().contains("players")) {
+                        for (auto& player : room.value()["players"]) {
+                            std::cout << player["socket"].get<int>() << " - " 
+                                      << player["name"].get<std::string>() << std::endl;
+                        }
+                    }
+                }
+            }
+
+            std::cout << "Enter player ID to kick: ";
+            std::string kickInput;
+            if (!std::getline(std::cin, kickInput)) {
+                std::cin.clear();
+                //print prompt again for next command
+                std::cout << "> " << std::flush;
                 continue;
             }
 
-            if (input == "quit" || input == "^C") {
-                {
-                    std::lock_guard<std::mutex> lock(shutdownMutex);
-                    isShuttingDown = true;
-                    shouldClose = true;
-                }
-                shutdownCV.notify_all();
-                io_context.stop();
-                json quitMessage = {{"quitGame", true}};
-                broadcastMessage(quitMessage);
-                break;
-            } else if (input == "kick") {
-                std::cout << "Current players:\n";
+            try {
+                int kickId = std::stoi(kickInput);
                 {
                     std::lock_guard<std::mutex> lock(game_mutex);
+                    bool playerFound = false;
                     for (auto& room : game.items()) {
                         if (room.value().contains("players")) {
-                            for (auto& player : room.value()["players"]) {
-                                std::cout << player["socket"].get<int>() << " - " 
-                                          << player["name"].get<std::string>() << std::endl;
-                            }
-                        }
-                    }
-                }
-
-                std::cout << "Enter player ID to kick: ";
-                std::string kickInput;
-                if (!std::getline(std::cin, kickInput)) {
-                    continue;
-                }
-
-                try {
-                    int kickId = std::stoi(kickInput);
-                    {
-                        std::lock_guard<std::mutex> lock(game_mutex);
-                        bool playerFound = false;
-                        for (auto& room : game.items()) {
-                            if (room.value().contains("players")) {
-                                auto& players = room.value()["players"];
-                                auto it = std::remove_if(players.begin(), players.end(),
-                                    [kickId](const json& p) {
-                                        return p["socket"].get<int>() == kickId;
-                                    });
-                                if (it != players.end()) {
-                                    playerFound = true;
-                                    // Send quit message if possible
-                                    if (auto sock = getSocketFromId(kickId)) {
-                                        json kickedMessage = {{"quitGame", true}};
-                                        boost::asio::write(*sock, boost::asio::buffer(kickedMessage.dump() + "\n"));
-                                        sock->close();
-                                        {
-                                            std::lock_guard<std::mutex> sockLock(socket_mutex);
-                                            connected_sockets.erase(
-                                                std::remove_if(connected_sockets.begin(), connected_sockets.end(),
-                                                    [kickId](const std::shared_ptr<tcp::socket>& s) {
-                                                        return s->native_handle() == kickId;
-                                                    }
-                                                ),
-                                                connected_sockets.end()
-                                            );
-                                        }
+                            auto& players = room.value()["players"];
+                            auto it = std::remove_if(players.begin(), players.end(),
+                                [kickId](const json& p) {
+                                    return p["socket"].get<int>() == kickId;
+                                });
+                            if (it != players.end()) {
+                                playerFound = true;
+                                // Attempt to send a quit message to the kicked player
+                                if (auto sock = getSocketFromId(kickId)) {
+                                    json kickedMessage = {{"quitGame", true}};
+                                    boost::asio::write(*sock, boost::asio::buffer(kickedMessage.dump() + "\n"));
+                                    sock->close();
+                                    {
+                                        std::lock_guard<std::mutex> sockLock(socket_mutex);
+                                        connected_sockets.erase(
+                                            std::remove_if(connected_sockets.begin(), connected_sockets.end(),
+                                                [kickId](const std::shared_ptr<tcp::socket>& s) {
+                                                    return s->native_handle() == kickId;
+                                                }
+                                            ),
+                                            connected_sockets.end()
+                                        );
                                     }
-                                    players.erase(it, players.end());
                                 }
+                                players.erase(it, players.end());
                             }
                         }
-                        if (playerFound) {
-                            json gameUpdate = {{"getGame", game}};
-                            broadcastMessage(gameUpdate);
-                            std::cout << "Player kicked successfully\n";
-                        } else {
-                            std::cout << "Player not found\n";
-                        }
                     }
-                } catch (...) {
-                    std::cout << "Invalid player ID\n";
+                    if (playerFound) {
+                        json gameUpdate = {{"getGame", game}};
+                        broadcastMessage(gameUpdate);
+                        std::cout << "Player kicked successfully\n";
+                    } else {
+                        std::cout << "Player not found\n";
+                    }
                 }
-
-            } else if (input == "game") {
-                std::lock_guard<std::mutex> lock(game_mutex);
-                std::cout << "\n=== CURRENT GAME STATE ===\n";
-                std::cout << game.dump(2) << std::endl;
-                std::cout << "========================\n\n";
+            } catch (...) {
+                std::cout << "Invalid player ID\n";
             }
+
+        } else if (input == "game") {
+            std::lock_guard<std::mutex> lock(game_mutex);
+            std::cout << "\n=== CURRENT GAME STATE ===\n";
+            std::cout << game.dump(2) << std::endl;
+            std::cout << "========================\n\n";
         }
+
+        // After handling a command, print the prompt again for the next command
+        std::cout << "> " << std::flush;
     }
 }
+
 
 void setupSignalHandlers() {
     static boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
