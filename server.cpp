@@ -699,6 +699,19 @@ void enemyThread() {
                         broadcastMessage(message);
                     }
                 }
+                //update enemies
+                for (auto& enemy : game["room2"]["enemies"]) {
+                    json beforeenemy = enemy;
+                    updateEnemy(game["room2"]["players"], enemy);
+                    json afterenemy = enemy;
+                    json message = {{"updateEPosition", true},
+                    {"x", enemy["x"]},
+                    {"y", enemy["y"]},
+                    {"width", enemy["width"]},
+                    {"height", enemy["height"]},
+                    {"enemyId", enemy["id"]}};
+                    broadcastMessage(message);
+                }
             }
         } catch (const std::exception& e) {
             std::cerr << "Error in enemy thread: " << e.what() << std::endl;

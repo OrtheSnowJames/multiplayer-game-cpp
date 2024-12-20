@@ -679,11 +679,11 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
             }
 
             if (messageJson.contains("updateEPosition")) {
-                auto& updateData = messageJson["updateEPosition"];
+                json updateData = messageJson["updateEPosition"];
                 updateEPosition(updateData);
             }
 
-            parsedSomething = true; // We successfully parsed an object
+            parsedSomething = true;
         } 
         catch (const json::parse_error& e) {
             std::cerr << "JSON parse error: " << e.what() << "\n";
@@ -695,7 +695,6 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
         catch (const std::exception& e) {
             std::cerr << "Error handling message: " << e.what() << "\n";
             logToFile("Error handling message: " + std::string(e.what()), ERROR);
-            // Move on to next possible messages
             parsedSomething = true;
         }
     }

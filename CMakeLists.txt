@@ -1,4 +1,3 @@
-#KNOWN ISSUE: If you can't build, run 'rm -rf build'.
 cmake_minimum_required(VERSION 3.15)
 project(multiplayer_game_cpp)
 
@@ -32,11 +31,11 @@ else()
     message(FATAL_ERROR "vcpkg toolchain not found in the user's home directory: ${VCPKG_DIR}")
 endif()
 
-
 # Find required packages
 find_package(Boost REQUIRED COMPONENTS system thread filesystem regex chrono date_time)
 find_package(nlohmann_json REQUIRED)
 find_package(raylib REQUIRED)
+find_package(glfw3 REQUIRED) # Explicitly find GLFW
 
 # Add source files
 set(SERVER_SOURCES
@@ -109,6 +108,7 @@ target_link_libraries(server PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
+    glfw  # Link GLFW explicitly
 )
 
 # Link libraries for client (all platforms)
@@ -121,6 +121,7 @@ target_link_libraries(client PRIVATE
     Boost::date_time
     nlohmann_json::nlohmann_json
     raylib
+    glfw  # Link GLFW explicitly
 )
 
 # Add system-specific libraries

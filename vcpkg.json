@@ -12,6 +12,7 @@
         "boost-signals2",       
         "nlohmann-json",
         "raylib",
-        "websocketpp"
+        "websocketpp",
+        "glfw3"
     ]
 }
