@@ -14,7 +14,7 @@
 #include <filesystem>
 #include <map>
 #include <algorithm>
-#include <string> // For std::to_string
+#include <string>
 
 #include "libs/enemy.hpp"
 #include "coolfunctions.hpp"
@@ -790,14 +790,14 @@ void kickPlayer(int playerId) {
 }
 
 void cliThread() {
-    bool expectingKickId = false;  // tracks if we're waiting for a second input for 'kick' command
+    bool expectingKickId = false;
+    bool promptPrinted = false;
+
+    // Print the prompt initially
+    std::cout << "> " << std::flush;
+    promptPrinted = true;
 
     while (!isShuttingDown && !shouldClose) {
-        // Print main prompt only if not expecting a second response
-        if (!expectingKickId) {
-            std::cout << "> " << std::flush;
-        }
-
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
@@ -808,19 +808,28 @@ void cliThread() {
 
         int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &timeout);
         if (ready <= 0) {
+            // No input - just continue waiting without printing another prompt
             if (isShuttingDown || shouldClose) break;
-            continue; 
+            continue;
         }
 
         std::string input;
         if (!std::getline(std::cin, input)) {
+            // Handle EOF or input error
             std::cin.clear();
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             expectingKickId = false;
+            // Reprint prompt if not shutting down
+            if (!isShuttingDown && !shouldClose) {
+                std::cout << "> " << std::flush;
+                promptPrinted = true;
+            }
             continue;
         }
 
+        // Handle input
         if (expectingKickId) {
+            // We were expecting a kick ID
             if (input.empty()) {
                 std::cout << "No input provided. Kick cancelled.\n";
             } else {
@@ -832,10 +841,16 @@ void cliThread() {
                     std::cout << "Invalid player ID. Kick cancelled.\n";
                 }
             }
-            expectingKickId = false; 
+            expectingKickId = false;
+            // After handling kick ID, show prompt again
+            if (!isShuttingDown && !shouldClose) {
+                std::cout << "> " << std::flush;
+                promptPrinted = true;
+            }
             continue;
         }
 
+        // Normal command handling
         if (input == "quit" || input == "^C") {
             {
                 std::lock_guard<std::mutex> lock(shutdownMutex);
@@ -849,19 +864,28 @@ void cliThread() {
         } else if (input == "kick") {
             printCurrentPlayers();
             std::cout << "Enter player ID to kick: " << std::flush;
-            expectingKickId = true; 
+            expectingKickId = true;
+            // Don't print the normal prompt here, we are now waiting for ID
+            continue;
 
         } else if (input == "game") {
             std::lock_guard<std::mutex> lock(game_mutex);
             std::cout << "\n=== CURRENT GAME STATE ===\n";
-            std::cout << game.dump(2) << std::endl; 
+            std::cout << game.dump(2) << std::endl;
             std::cout << "========================\n\n";
 
         } else if (!input.empty()) {
             std::cout << "Unknown command: " << input << "\n";
         }
+
+        // After handling a normal command, print the prompt again
+        if (!isShuttingDown && !shouldClose) {
+            std::cout << "> " << std::flush;
+            promptPrinted = true;
+        }
     }
 }
+
 
 void setupSignalHandlers() {
     static boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
