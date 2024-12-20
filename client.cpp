@@ -1241,7 +1241,7 @@ int client_main() {
                 Button buttonD = {{static_cast<float>(screenWidth) - 120, static_cast<float>(screenHeight) - 180, 60, 60}, "D", false};
                 Button buttonShift = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 120, 60, 60}, "Shift", false};
                 Button buttonQuit = {{static_cast<float>(screenWidth) - 180, static_cast<float>(screenHeight) - 60, 60, 60}, "Quit", false};
-                if (!localPlayerSet || !initGameFully) {
+                if (!localPlayerSet && !initGameFully) {
                     DrawText("Waiting for player initialization...", 10, 10, 20, BLACK);
                     DrawText("Try reconnecting if you've been here for a while", 40, 40, 20, BLACK);
                     DrawText("If you're stuck, you probably got kicked, just tell the server owner to restart the server", 40, 70, 20, BLACK);
