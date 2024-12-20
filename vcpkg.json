@@ -3,9 +3,17 @@
     "version": "1.0.0",
     "dependencies": [
         "boost-asio",
+        "boost-system",
+        "boost-date-time",
+        "boost-chrono",
+        "boost-thread",
+        "boost-filesystem",
+        "boost-random",
+        "boost-signals2",       
         "nlohmann-json",
         "raylib",
         "websocketpp",
-        "gtest"
+        "gtest",
+        "boost-system"
     ]
 }

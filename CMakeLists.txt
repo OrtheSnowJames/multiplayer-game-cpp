@@ -9,6 +9,30 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Set CMake module path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/")
 
+# Determine the user's home directory based on platform
+if(WIN32)
+    # On Windows, use %USERPROFILE% as the user's home directory
+    set(USER_HOME "$ENV{USERPROFILE}")
+elseif(APPLE OR UNIX)
+    # On macOS/Linux, use $HOME as the user's home directory
+    set(USER_HOME "$ENV{HOME}")
+else()
+    message(FATAL_ERROR "Unsupported platform.")
+endif()
+
+# Define the expected vcpkg path in the user's home directory
+set(VCPKG_DIR "${USER_HOME}/vcpkg")
+
+# Check if the vcpkg toolchain exists in the user's home directory
+if(EXISTS "${VCPKG_DIR}/scripts/buildsystems/vcpkg.cmake")
+    # Set the CMake toolchain to vcpkg
+    set(CMAKE_TOOLCHAIN_FILE "${VCPKG_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "Path to the CMake toolchain file for vcpkg")
+    message(STATUS "Using vcpkg toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
+else()
+    message(FATAL_ERROR "vcpkg toolchain not found in the user's home directory: ${VCPKG_DIR}")
+endif()
+
+
 # Find required packages
 find_package(Boost REQUIRED COMPONENTS system thread filesystem regex chrono date_time)
 find_package(nlohmann_json REQUIRED)
