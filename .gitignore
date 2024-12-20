@@ -2,3 +2,5 @@
 /.vscode/
 err.log
 /vcpkg_installed
+client
+server

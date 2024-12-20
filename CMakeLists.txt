@@ -6,15 +6,13 @@ project(multiplayer_game_cpp)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-#set cmake dir
+# Set CMake module path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/")
-
 
 # Find required packages
 find_package(Boost REQUIRED COMPONENTS system thread filesystem regex chrono date_time)
 find_package(nlohmann_json REQUIRED)
 find_package(raylib REQUIRED)
-find_package(GTest REQUIRED)
 
 # Add source files
 set(SERVER_SOURCES
@@ -25,11 +23,6 @@ set(SERVER_SOURCES
 
 set(CLIENT_SOURCES
     client.cpp
-    coolfunctions.hpp
-)
-
-set(TEST_CLIENT_SOURCES
-    test_client.cpp
     coolfunctions.hpp
 )
 
@@ -74,7 +67,6 @@ else()
     # Build all executables for non-iOS platforms
     add_executable(server ${SERVER_SOURCES})
     add_executable(client ${CLIENT_SOURCES})
-    add_executable(test_client ${TEST_CLIENT_SOURCES})
 endif()
 
 # Handle Emscripten-specific flags
@@ -83,34 +75,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
 
-# Modify library linking section to be platform-aware
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    # Link libraries for server
-    target_link_libraries(server PRIVATE
-        Boost::system
-        Boost::thread
-        Boost::filesystem
-        Boost::regex
-        Boost::chrono
-        Boost::date_time
-        nlohmann_json::nlohmann_json
-        raylib
-    )
-
-    # Link libraries for test_client
-    target_link_libraries(test_client PRIVATE
-        Boost::system
-        Boost::thread
-        Boost::filesystem
-        Boost::regex
-        Boost::chrono
-        Boost::date_time
-        nlohmann_json::nlohmann_json
-        raylib
-        GTest::GTest
-        GTest::Main
-    )
-endif()
+# Link libraries for server
+target_link_libraries(server PRIVATE
+    Boost::system
+    Boost::thread
+    Boost::filesystem
+    Boost::regex
+    Boost::chrono
+    Boost::date_time
+    nlohmann_json::nlohmann_json
+    raylib
+)
 
 # Link libraries for client (all platforms)
 target_link_libraries(client PRIVATE
@@ -125,22 +100,19 @@ target_link_libraries(client PRIVATE
 )
 
 # Add system-specific libraries
-if(UNIX)
+if(UNIX AND NOT APPLE)
     target_link_libraries(server PRIVATE GL m pthread dl rt X11)
     target_link_libraries(client PRIVATE GL m pthread dl rt X11)
-    target_link_libraries(test_client PRIVATE GL m pthread dl rt X11)
-endif()
-
-if(WIN32)
+elseif(APPLE)
+    target_link_libraries(server PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
+    target_link_libraries(client PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
+elseif(WIN32)
     add_definitions(-D_WIN32_WINNT=0x0A00) # Target Windows 10 or later for WinSock2
     set(PLATFORM_LIBS ws2_32)
     target_link_libraries(server PRIVATE ${PLATFORM_LIBS})
-else()
-    set(PLATFORM_LIBS pthread)
-    target_link_libraries(server PRIVATE ${PLATFORM_LIBS})
+    target_link_libraries(client PRIVATE ${PLATFORM_LIBS})
 endif()
 
 # Include directories
 target_include_directories(server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_include_directories(test_client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
