@@ -1,7 +1,7 @@
 #ifndef ENEMY_HPP
 #define ENEMY_HPP
 
-#include "../raylib.h"
+#include <raylib.h>
 #include <iostream>
 #include "pathfinding.hpp"
 #include <nlohmann/json.hpp>

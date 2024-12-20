@@ -3,7 +3,7 @@
 #include <cmath>
 #include <vector>
 #include <iostream>
-#include "../raylib.h"
+#include <raylib.h>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 

@@ -12,8 +12,6 @@
         "boost-signals2",       
         "nlohmann-json",
         "raylib",
-        "websocketpp",
-        "gtest",
-        "boost-system"
+        "websocketpp"
     ]
 }

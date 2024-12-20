@@ -11,7 +11,7 @@
 #include <cerrno>
 #include <cstring>
 #include "coolfunctions.hpp"
-#include "raylib.h"
+#include <raylib.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
