@@ -596,6 +596,29 @@ void handleMessage(const std::string &message, tcp::socket &socket)
                 }
             }
 
+            if (messageJson.contains("shieldCount")) {
+                std::lock_guard<std::mutex> lock(game_mutex);
+                for (auto& player : game[roomName]["players"]) {
+                    if (player["socket"] == sockID) {
+                        int beforeshield = player["inventory"]["shields"].get<int>();
+                        player["inventory"]["shields"] = messageJson["shieldCount"];
+                        int aftershield = player["inventory"]["shields"].get<int>();
+                        json playerItems = {
+                            {"playerItems", {
+                                {"socket", sockID},
+                                {"get", 1},
+                                {"shields", player["inventory"]["shields"].get<int>()},
+                                {"bananas", player["inventory"]["bananas"].get<int>()}
+                            }}
+                        };
+                        if (beforeshield != aftershield) {
+                            broadcastMessage(playerItems);
+                        }
+                        break;
+                    }
+                }
+            }
+
             if (messageJson.contains("shieldTouched") && messageJson["shieldTouched"].get<bool>()) {
                 std::lock_guard<std::mutex> lock(game_mutex);
             

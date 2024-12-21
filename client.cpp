@@ -54,6 +54,7 @@ json checklist = {
     {"height", 64},
     {"currentGame", ""},
     {"currentPlayer", ""},
+    {"shieldCount", 0},
     {"spriteState", 1},
     {"room", 1},
     {"playerCount", 0},
@@ -907,6 +908,18 @@ void DrawTextureProFullscreen(Texture2D texture, float alpha) {
     DrawTexturePro(texture, source, dest, (Vector2){ 0, 0 }, 0, tint);
 }
 
+void handleDeathAnimation(int& roomNum, float& x, float& y, bool& isAnimating) {
+    isAnimating = true;
+    BeginDrawing();
+    ClearBackground(BLACK);
+    EndDrawing();
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+    roomNum = 1;
+    x = 90;
+    y = 90;
+    isAnimating = false;
+}
+
 int client_main() {
     int WindowsOpen = 0;
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
@@ -1279,6 +1292,9 @@ int client_main() {
                 std::cout << error << std::endl;
             }
 
+            bool isDeathAnimating = false;
+            std::unique_ptr<std::thread> deathAnimationThread;
+
             while (!WindowShouldClose() && gameRunning) {
                 if (!socket.is_open() || reconnecting) {
                     BeginDrawing();
@@ -1614,6 +1630,52 @@ int client_main() {
                     for (const auto& enemy : game[localRoomName]["enemies"]) {
                         if (checkCollision(checklist, enemy)) {
                             checklist["enemyTouched"] = enemy["id"].get<int>();
+                            // Check if player has shields
+                            bool hasShields = false;
+                            for (const auto& player : game[localRoomName]["players"]) {
+                                if (player["socket"] == localPlayer["socket"]) {
+                                    if (player.contains("shields") && player["shields"].get<int>() > 0) {
+                                        hasShields = true;
+                                        checklist["shieldCount"] = player["shields"].get<int>() - 1;
+                                    }
+                                    break;
+                                }
+                            }
+                            
+                            if (!hasShields && !isDeathAnimating) {
+                                // Clean up previous thread if it exists
+                                if (deathAnimationThread && deathAnimationThread->joinable()) {
+                                    deathAnimationThread->join();
+                                }
+                                
+                                // Start new death animation thread
+                                deathAnimationThread = std::make_unique<std::thread>([&]() {
+                                    int newRoom = 1;
+                                    float newX = 90;
+                                    float newY = 90;
+                                    handleDeathAnimation(newRoom, newX, newY, isDeathAnimating);
+                                    
+                                    // Update player position and room
+                                    checklist["room"] = newRoom;
+                                    checklist["x"] = newX;
+                                    checklist["y"] = newY;
+                                    localPlayer["room"] = newRoom;
+                                    
+                                    // Force an immediate position update to server
+                                    json updateMessage = {
+                                        {"x", newX},
+                                        {"y", newY},
+                                        {"room", newRoom},
+                                        {"socket", localPlayer["socket"]},
+                                        {"spriteState", checklist["spriteState"]}
+                                    };
+                                    try {
+                                        boost::asio::write(socket, boost::asio::buffer(updateMessage.dump() + "\n"));
+                                    } catch (const std::exception& e) {
+                                        logToFile("Failed to send death position update: " + std::string(e.what()), ERROR);
+                                    }
+                                });
+                            }
                             break;
                         }
                     }
