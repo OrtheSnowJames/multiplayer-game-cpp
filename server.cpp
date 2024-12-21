@@ -596,24 +596,29 @@ void handleMessage(const std::string &message, tcp::socket &socket)
                 }
             }
 
-            if (messageJson.contains("shieldTouched") && messageJson["shieldTouched"].get<bool>())
-            {
-                json shield = [&]()
-                {
-                    for (auto &r : game)
-                    {
-                        for (auto &o : r["objects"])
-                        {
-                            if (o["objectID"] == 10)
-                            {
-                                return o;
-                            }
+            if (messageJson.contains("shieldTouched") && messageJson["shieldTouched"].get<bool>()) {
+                std::lock_guard<std::mutex> lock(game_mutex);
+            
+                for (auto& roomEntry : game.items()) {
+                    auto& objects = roomEntry.value()["objects"];
+                    for (auto it = objects.begin(); it != objects.end(); ++it) {
+                        
+                        if (it->contains("objID") && (*it)["objID"] == 10) {
+                            json shieldData = *it;
+                            objects.erase(it);
+            
+                            json message = {
+                                {"updateShield", true},
+                                {"action", "delete"},
+                                {"room", roomEntry.value()["roomID"]}, // or just 2 if you only spawn in room2
+                                {"shield", shieldData}
+                            };
+                            broadcastMessage(message);
+                            break;
                         }
                     }
-                    return json{};
-                }();
-                json message = {{"updateShield", true}, {"shield", shield}, {"room", 2}, {"action", "delete"}};
-            }
+                }
+            }   
 
             if (messageJson.contains("room") && lookForPlayer(socket)["room"].get<int>() != messageJson["room"].get<int>())
             {
@@ -807,6 +812,7 @@ void heartbeatThread()
 
 void enemyThread()
 {
+    int enemiesAllowed = 3;
     std::cout << "Enemy thread started" << std::endl;
     logToFile("Enemy thread started", INFO);
     while (!shouldClose)
@@ -822,7 +828,7 @@ void enemyThread()
                 std::lock_guard<std::mutex> lock(game_mutex);
                 if (!game["room2"]["players"].empty())
                 {
-                    if (game["room2"]["enemies"].size() < 4)
+                    if (game["room2"]["enemies"].size() < enemiesAllowed)
                     {
                         json newEnemy = createEnemy(2);
                         game["room2"]["enemies"].push_back(newEnemy);

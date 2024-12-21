@@ -535,21 +535,19 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 //get action: delete/add, shield, room
                 std::string action = messageJson["action"];
                 if (action == "delete") {
-                    //shield id = 10
-                    for (auto& r : game) {
-                        if (r.contains("objects")) {
-                            for (auto& o : r["objects"]) {
-                                if (o["id"] == 10) {
-                                    r["objects"].erase(o);
-                                    break;
-                                }
-                            }
+                    int shieldRoom = messageJson["room"].get<int>();
+                    auto& objects = game["room" + std::to_string(shieldRoom)]["objects"];
+
+                    for (auto it = objects.begin(); it != objects.end(); ++it) {
+                        if (it->contains("objID") && (*it)["objID"] == 10) {
+                            objects.erase(it);
+                            break;
                         }
                     }
-                } else if (action == "add") {  
-                    //shield id = 10, pass room = messageJson["room"]
-                    game["room" + std::to_string(messageJson["room"].get<int>())]["objects"].push_back(messageJson["shield"]);
-                }
+                } else if (action == "add") {
+                    int shieldRoom = messageJson["room"].get<int>();
+                    game["room" + std::to_string(shieldRoom)]["objects"].push_back(messageJson["shield"]);
+            }
             }
 
             if (messageJson.contains("playerLeft")) {
@@ -1528,8 +1526,10 @@ int client_main() {
 
                     //get if touched shield
                     try {
+                        int localSocketId = localPlayer["socket"].get<int>();
                         for (const auto& object : game[localRoomName]["objects"]) {
-                            if (object["objID"] == 10 && checkCollision(checklist, object)) {
+                            json posjson = {{"x", static_cast<int>(playerStates[localSocketId].current.x)}, {"y", static_cast<int>(playerStates[localSocketId].current.y)}, {"width", checklist["width"]}, {"height", checklist["height"]}};
+                            if (object["objID"] == 10 && checkCollision(posjson, object)) {
                                 checklist["shieldTouched"] = true;
                                 break;
                             }
