@@ -1,75 +1,102 @@
 #ifndef PATHFINDING_HPP
 #define PATHFINDING_HPP
+
 #include <cmath>
 #include <vector>
-#include <iostream>
+#include <string>
+#include <algorithm>
 #include <raylib.h>
 #include <nlohmann/json.hpp>
+
 using json = nlohmann::json;
 
-
-inline int calculateDistance(json& object, json& other_object) {
-    int dx = object["x"].get<int>() - other_object["x"].get<int>();
-    int dy = object["y"].get<int>() - other_object["y"].get<int>();
-    return static_cast<int>(sqrt(dx*dx + dy*dy));
+/**
+ * Calculate the Euclidean distance between two objects that have x,y.
+ */
+inline int calculateDistance(const json& object, const json& other_object) {
+    int dx = object.at("x").get<int>() - other_object.at("x").get<int>();
+    int dy = object.at("y").get<int>() - other_object.at("y").get<int>();
+    return static_cast<int>(std::sqrt(dx * dx + dy * dy));
 }
 
-inline float calculateDirectionDegrees(json& object, json& other_object) {
-    float dx = other_object["x"].get<int>() - object["x"].get<int>();
-    float dy = other_object["y"].get<int>() - object["y"].get<int>();
-
-    float angleRadians = atan2f(dy, dx);
+/**
+ * Calculate the angle in degrees from 'object' to 'other_object'.
+ * 
+ * Here we use atan2(-dy, dx) so that:
+ *   - angle = 0   => north (i.e., up)
+ *   - angle = 90  => east
+ *   - angle = 180 => south
+ *   - angle = 270 => west
+ */
+inline float calculateDirectionDegrees(const json& object, const json& other_object) {
+    float dx = static_cast<float>(other_object.at("x").get<int>() - object.at("x").get<int>());
+    float dy = static_cast<float>(other_object.at("y").get<int>() - object.at("y").get<int>());
+    
+    // We negate `dy` so that 0 degrees is "north" (i.e. up).
+    float angleRadians = std::atan2f(-dy, dx);
     float angleDegrees = angleRadians * RAD2DEG;
-    if (angleDegrees < 0) angleDegrees += 360.0f;
+    if (angleDegrees < 0.0f) {
+        angleDegrees += 360.0f;
+    }
     return angleDegrees;
 }
 
+/**
+ * Given a number (an angle) and a list of "standard angles," find the closest angle.
+ */
 inline int findClosestNumber(int number, const std::vector<int>& numbers) {
-    int min_diff = std::abs(number - numbers[0]);
-    int closest_num = numbers[0];
-
-    for (size_t i = 1; i < numbers.size(); ++i) {
-        int diff = std::abs(number - numbers[i]);
-        if (diff < min_diff) {
-            min_diff = diff;
-            closest_num = numbers[i];
-        }
-    }
-
-    return closest_num;
+    return *std::min_element(numbers.begin(), numbers.end(),
+        [number](int a, int b) {
+            return std::abs(number - a) < std::abs(number - b);
+        });
 }
 
-inline std::string findPixelToGoTo(nlohmann::json& playersarray, nlohmann::json& enemy) {
-    if (playersarray.empty()) {
-        return ""; // :(
+/**
+ * Find which "direction label" to move toward so the enemy can go toward
+ * the closest player, snapping angles to 45-degree increments.
+ *
+ * Returns one of:
+ *   "north", "north-east", "east", "south-east",
+ *   "south", "south-west", "west", "north-west"
+ * or an empty string if playersArray is empty.
+ */
+inline std::string findPixelToGoTo(const json& playersArray, const json& enemy) {
+    if (playersArray.empty()) {
+        return "";
     }
 
-    int smallestyet = 0;
-    int smallestDistance = calculateDistance(enemy, playersarray[0]);
-    for (int it = 1; it < (int)playersarray.size(); it++) {
-        int dist = calculateDistance(enemy, playersarray[it]);
-        if (dist < smallestDistance) {
-            smallestDistance = dist;
-            smallestyet = it;
-        }
-    }
+    // Find the closest player to this enemy
+    auto closestPlayerIt = std::min_element(playersArray.begin(), playersArray.end(),
+        [&enemy](const json& a, const json& b) {
+            return calculateDistance(enemy, a) < calculateDistance(enemy, b);
+        });
 
-    int degrees = static_cast<int>(calculateDirectionDegrees(enemy, playersarray[smallestyet]));
+    // Calculate direction from enemy -> closest player
+    int degrees = static_cast<int>(calculateDirectionDegrees(enemy, *closestPlayerIt));
 
-    std::vector<int> nums = {0, 45, 90, 135, 180, 225, 270, 315, 360};
-    int dirtogo = findClosestNumber(degrees, nums);
+    // Snap to nearest 45-degree increment
+    std::vector<int> standardDirections = {0, 45, 90, 135, 180, 225, 270, 315, 360};
+    int dirToGo = findClosestNumber(degrees, standardDirections);
 
-    std::string dirnametogo;
-    if (dirtogo == 0 || dirtogo == 360) dirnametogo = "north";
-    else if (dirtogo == 45) dirnametogo = "north-east";
-    else if (dirtogo == 90) dirnametogo = "east";
-    else if (dirtogo == 135) dirnametogo = "south-east";
-    else if (dirtogo == 180) dirnametogo = "south";
-    else if (dirtogo == 225) dirnametogo = "south-west";
-    else if (dirtogo == 270) dirnametogo = "west";
-    else if (dirtogo == 315) dirnametogo = "north-west";
+    // Map those angles to direction strings
+    static const std::vector<std::pair<int, std::string>> directionMap = {
+        {0,   "north"},      // 0 degrees => up
+        {45,  "north-east"},
+        {90,  "east"},
+        {135, "south-east"},
+        {180, "south"},
+        {225, "south-west"},
+        {270, "west"},
+        {315, "north-west"},
+        {360, "north"}  // Snap 360 back to "north"
+    };
 
-    return dirnametogo;
+    auto it = std::find_if(directionMap.begin(), directionMap.end(),
+        [dirToGo](const std::pair<int, std::string>& pair) {
+            return pair.first == dirToGo;
+        });
+
+    return (it != directionMap.end()) ? it->second : "";
 }
 
-#endif
+#endif // PATHFINDING_HPP

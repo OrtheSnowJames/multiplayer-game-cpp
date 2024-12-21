@@ -45,6 +45,8 @@ json checklist = {
     {"goingdown", false},
     {"quitGame", false},
     {"requestGame", false},
+    {"enemyTouched", 0},
+    {"shieldTouched", false},
     {"x", 0},
     {"y", 0},
     {"width", 64},
@@ -360,6 +362,12 @@ json lookForEnemy(int id) {
 }
 
 void updateEPosition(const json& updateData) {
+    //make sure everything is in the right format
+    if (!updateData.contains("enemyId") || !updateData.contains("x") || !updateData.contains("y") ||
+        !updateData.contains("width") || !updateData.contains("height")) {
+        std::cout << "Invalid enemy update data" << std::endl;
+        return;
+    }
     int enemyId = updateData["enemyId"].get<int>();
 
     if (enemyStates.find(enemyId) == enemyStates.end()) {
@@ -523,6 +531,27 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 }
             }
 
+            if (messageJson.contains("updateShield")) {
+                //get action: delete/add, shield, room
+                std::string action = messageJson["action"];
+                if (action == "delete") {
+                    //shield id = 10
+                    for (auto& r : game) {
+                        if (r.contains("objects")) {
+                            for (auto& o : r["objects"]) {
+                                if (o["id"] == 10) {
+                                    r["objects"].erase(o);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if (action == "add") {  
+                    //shield id = 10, pass room = messageJson["room"]
+                    game["room" + std::to_string(messageJson["room"].get<int>())]["objects"].push_back(messageJson["shield"]);
+                }
+            }
+
             if (messageJson.contains("playerLeft")) {
                 int socketId = messageJson["playerLeft"].get<int>();
                 if (playerStates.find(socketId) != playerStates.end()) {
@@ -678,9 +707,8 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 }
             }
 
-            if (messageJson.contains("updateEPosition")) {
-                json updateData = messageJson["updateEPosition"];
-                updateEPosition(updateData);
+            if (messageJson.contains("updateEPosition") && messageJson["updateEPosition"].get<bool>()) {
+                updateEPosition(messageJson);
             }
 
             parsedSomething = true;
@@ -1489,6 +1517,28 @@ int client_main() {
                         break;
                     }
 
+                    //check collision with enemies
+                    for (const auto& enemy : game[localRoomName]["enemies"]) {
+                        if (checkCollision(checklist, enemy)) {
+                            int index = findIndex(game[localRoomName]["enemies"], "x", enemy["x"].get<int>());
+                            checklist["enemyTouched"] = index;
+                            break;
+                        }
+                    }
+
+                    //get if touched shield
+                    try {
+                        for (const auto& object : game[localRoomName]["objects"]) {
+                            if (object["objID"] == 10 && checkCollision(checklist, object)) {
+                                checklist["shieldTouched"] = true;
+                                break;
+                            }
+                        }
+                    } catch (exception& e) {
+                        std::cerr << "Error: " << e.what() << std::endl;
+                        logToFile("Error: " + std::string(e.what()), ERROR);
+                    }
+
                     // Add bounds checking
                     int screenWidth = GetScreenWidth();
                     int screenHeight = GetScreenHeight();
@@ -1504,32 +1554,18 @@ int client_main() {
                     }
 
                     if (send && (now - lastSendTime) >= sendInterval && checklist != previousChecklist) {
-                            json messageToSend = {
-                            {"x", checklist["x"].get<int>()},
-                            {"y", checklist["y"].get<int>()},
-                            {"width", checklist["width"].get<int>()},
-                            {"height", checklist["height"].get<int>()},
-                            {"room", checklist["room"].get<int>()},
-                            {"spriteState", checklist["spriteState"].get<int>()},
-                            {"speed", checklist["speed"].get<int>()},
-                            {"goingup", checklist["goingup"]},
-                            {"goingleft", checklist["goingleft"]},
-                            {"goingright", checklist["goingright"]},
-                            {"goingdown", checklist["goingdown"]}
-                         };
-
-                            int localSocketId = localPlayer["socket"].get<int>();
-                            playerStates[localSocketId].target = Position(
-                                checklist["x"].get<float>(),
-                                checklist["y"].get<float>(),
-                                checklist["width"].get<float>(),
-                                checklist["height"].get<float>()
+                        int localSocketId = localPlayer["socket"].get<int>();
+                        playerStates[localSocketId].target = Position(
+                            checklist["x"].get<float>(),
+                            checklist["y"].get<float>(),
+                            checklist["width"].get<float>(),
+                            checklist["height"].get<float>()
                         );
                         playerStates[localSocketId].spriteState = checklist["spriteState"].get<int>();
                         playerStates[localSocketId].room = checklist["room"].get<int>();
                         playerStates[localSocketId].interpolation = 0;
 
-                        std::string messageStr = messageToSend.dump() + "\n";
+                        std::string messageStr = checklist.dump() + "\n";
                         boost::asio::write(socket, boost::asio::buffer(messageStr));
                         lastSendTime = now;
                         previousChecklist = checklist;  
@@ -1551,9 +1587,13 @@ int client_main() {
 
                     float deltaTime = GetFrameTime();
                     
-                    // Update all player states
-                    // Update and draw all players
-                    
+                    //draw shield
+                    for (auto& o : game[localRoomName]["objects"]) {
+                        if (o["objID"] == 10) {
+                            DrawRectangle(o["x"].get<float>(), o["y"].get<float>(), o["width"].get<float>(), o["height"].get<float>(), BLUE);
+                        }
+                    }
+
                     for (auto& [socketId, state] : playerStates) {
                         if (state.room == localPlayer["room"].get<int>()) {  // Only draw players in same room
                             state.update(deltaTime);  // Updates interpolation for smooth movement
@@ -1594,6 +1634,7 @@ int client_main() {
                                     RED
                                 );
                             }
+                            
 
                             // Draw player name
                             DrawText(state.name.c_str(), 
@@ -1603,31 +1644,24 @@ int client_main() {
                         }
                     }
 
-                    // Update and draw all enemies
-                    for (auto& [enemyId, state] : enemyStates) {
-                        if (state.room == localPlayer["room"].get<int>()) {
-                            state.update(deltaTime);
-
-                            // Draw enemy with texture if available
-                            if (enemyTexture.id != 0) {
-                                DrawTexturePro(
-                                    enemyTexture,
-                                    (Rectangle){ 0, 0, static_cast<float>(enemyTexture.width), static_cast<float>(enemyTexture.height) },
-                                    (Rectangle){ state.current.x, state.current.y, state.current.width, state.current.height },
-                                    (Vector2){ 0, 0 },
-                                    0.0f,
-                                    WHITE
-                                );
-                            } else {
-                                // Fallback to rectangle if texture failed to load
-                                DrawRectangle(
-                                    state.current.x,
-                                    state.current.y,
-                                    state.current.width,
-                                    state.current.height,
-                                    RED
-                                );
-                            }
+                    // Update and draw all enemies the classic way
+                    for (auto& enemy : game[localRoomName]["enemies"]) {
+                        if (enemy["room"] == localPlayer["room"].get<int>()) {
+                            Rectangle sourceRect = { 0, 0, static_cast<float>(enemyTexture.width), static_cast<float>(enemyTexture.height) };
+                            Rectangle destRect = { 
+                                enemy["x"].get<float>(),
+                                enemy["y"].get<float>(),
+                                enemy["width"].get<float>(),
+                                enemy["height"].get<float>()
+                            };
+                            DrawTexturePro(
+                                enemyTexture,
+                                sourceRect,
+                                destRect,
+                                (Vector2){ 0, 0 },
+                                0.0f,
+                                WHITE
+                            );
                         }
                     }
 

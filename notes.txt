@@ -9,6 +9,7 @@
     "currentGame": "",
     "currentPlayer": ""
 }
+shield id = 10
 //remember when you update position update the interplotation position if ur in client.cpp
 vcpkg for this project will be installed to $HOME/vcpkg
 vcpkg packages:

@@ -6,6 +6,39 @@
 #include <cstdlib>
 #include <sstream>
 #include <type_traits>
+#include <nlohmann/json.hpp>
+
+//ex:
+    //Find index of the element where "name" is "Bob"
+    //int index = findIndex(jsonArray, "name", "Bob");
+
+template <typename T>
+int findIndex(const nlohmann::json& jsonArray, const std::string& key, const T& value) {
+    for (size_t i = 0; i < jsonArray.size(); ++i) {
+        const auto& item = jsonArray[i];
+
+        // Check if the current element contains the key and if its value matches the given value
+        if (item.contains(key)) {
+            if constexpr (std::is_same<T, int>::value) {
+                if (item[key].is_number_integer() && item[key].get<int>() == value) {
+                    return i;
+                }
+            }
+            else if constexpr (std::is_same<T, std::string>::value) {
+                if (item[key].is_string() && item[key].get<std::string>() == value) {
+                    return i;
+                }
+            }
+            else if constexpr (std::is_same<T, bool>::value) {
+                if (item[key].is_boolean() && item[key].get<bool>() == value) {
+                    return i;
+                }
+            }
+            // Add more type checks as needed (float, double, etc.)
+        }
+    }
+    return -1; // Return -1 if the element is not found
+}
 
 template <typename T>
 T getEnvVar(const std::string& varName, const T& defaultValue) {
