@@ -613,6 +613,24 @@ void handleMessage(const std::string &message, tcp::socket &socket)
                                 {"room", roomEntry.value()["roomID"]}, // or just 2 if you only spawn in room2
                                 {"shield", shieldData}
                             };
+
+                            //add shield to player
+                            for (auto& player : roomEntry.value()["players"]) {
+                                if (player["socket"] == sockID) {
+                                    player["inventory"]["shields"] = player["inventory"]["shields"].get<int>() + 1;
+                                    json playerItems = {
+                                        {"playerItems", {
+                                            {"socket", sockID},
+                                            {"get", 1},
+                                            {"shields", player["inventory"]["shields"].get<int>()},
+                                            {"bananas", player["inventory"]["bananas"].get<int>()}
+                                        }}
+                                    };
+                                    broadcastMessage(playerItems);
+                                    break;
+                                }
+                            }
+
                             broadcastMessage(message);
                             break;
                         }

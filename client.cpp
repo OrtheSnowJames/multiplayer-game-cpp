@@ -535,6 +535,7 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 //get action: delete/add, shield, room
                 std::string action = messageJson["action"];
                 if (action == "delete") {
+                    checklist["shieldTouched"] = false;
                     int shieldRoom = messageJson["room"].get<int>();
                     auto& objects = game["room" + std::to_string(shieldRoom)]["objects"];
 
@@ -547,7 +548,26 @@ void handleRead(const boost::system::error_code& error, std::size_t bytes_transf
                 } else if (action == "add") {
                     int shieldRoom = messageJson["room"].get<int>();
                     game["room" + std::to_string(shieldRoom)]["objects"].push_back(messageJson["shield"]);
+                }
             }
+
+            if (messageJson.contains("playerItems")) {
+                int socketId = messageJson["playerItems"]["socket"].get<int>();
+                int get = messageJson["playerItems"]["get"].get<int>(); // 0 for bananas, 1 for shields
+                for (auto& r : game) {
+                    for (auto& p : r["players"]) {
+                        if (p["socket"] == socketId) {
+                            switch (get) {
+                                case 0:
+                                    p["bananas"] = messageJson["playerItems"]["bananas"];
+                                    break;
+                                case 1:
+                                    p["shields"] = messageJson["playerItems"]["shields"];
+                                    break;
+                            }
+                        }
+                    }
+                }
             }
 
             if (messageJson.contains("playerLeft")) {
