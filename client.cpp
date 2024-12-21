@@ -12,6 +12,7 @@
 #include <cstring>
 #include "coolfunctions.hpp"
 #include <raylib.h>
+#include <vector>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -857,6 +858,55 @@ bool HandleTextBoxInput(TextBox& box) {
     return changed;
 }
 
+struct GifFrame {
+    Texture2D texture;
+    float duration;  // Duration in seconds
+};
+
+struct AnimatedGif {
+    std::vector<GifFrame> frames;
+    float timer;
+    size_t currentFrame;
+    bool isPlaying;
+    
+    AnimatedGif() : timer(0), currentFrame(0), isPlaying(true) {}
+    
+    void update(float deltaTime) {
+        if (!isPlaying || frames.empty()) return;
+        
+        timer += deltaTime;
+        if (timer >= frames[currentFrame].duration) {
+            timer -= frames[currentFrame].duration;
+            currentFrame = (currentFrame + 1) % frames.size();
+        }
+    }
+    
+    void draw(float x, float y) {
+        if (!frames.empty()) {
+            DrawTexture(frames[currentFrame].texture, x, y, WHITE);
+        }
+    }
+    
+    void unload() {
+        for (auto& frame : frames) {
+            UnloadTexture(frame.texture);
+        }
+        frames.clear();
+    }
+};
+
+// Add after the checkCollision function
+float getDistance(float x1, float y1, float x2, float y2) {
+    return sqrt(pow(x2 - x1, 2) + pow(y2 - y1, 2));
+}
+
+void DrawTextureProFullscreen(Texture2D texture, float alpha) {
+    Rectangle source = { 0, 0, (float)texture.width, (float)texture.height };
+    Rectangle dest = { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+    Color tint = { 255, 255, 255, (unsigned char)(alpha * 255) };
+    DrawTexturePro(texture, source, dest, (Vector2){ 0, 0 }, 0, tint);
+}
+
 int client_main() {
     int WindowsOpen = 0;
     int screenWidth = getEnvVar<int>("SCREEN_WIDTH", 800);
@@ -879,7 +929,7 @@ int client_main() {
     // Load player texture
     try {
         // Debug paths
-        fs::path playerImgPath = root / "assets" / "player.png";
+        fs::path playerImgPath =  root / "assets" / "player.png";
         fs::path compressedPlayerImgPath = root / "assets" / "compressedPlayer.png";
         fs::path bg1ImgPath = root / "assets" / "room1Bg.png";
         fs::path bg2ImgPath = root / "assets" / "room2Bg.png";
@@ -1204,6 +1254,31 @@ int client_main() {
 
             json localPlayerInterpolatedPos = {};
             personalSpaceBubble bubble;
+
+            // Load animated GIF
+            fs::path gifPath = root / "assets" / "static.gif";
+            debugImagePath(gifPath, "Static GIF");
+
+            if (!fs::exists(gifPath)) {
+                std::string error = "Static GIF not found at: " + gifPath.string();
+                logToFile(error, WARNING);
+                std::cout << error << std::endl;
+            }
+
+            AnimatedGif staticGif;
+            Image gifImage = LoadImage(gifPath.string().c_str());
+            if (gifImage.data != NULL) {
+                GifFrame frame;
+                frame.texture = LoadTextureFromImage(gifImage);
+                frame.duration = 0.1f;  // Set a default duration of 100ms
+                staticGif.frames.push_back(frame);
+                UnloadImage(gifImage);
+            } else {
+                std::string error = "Failed to load GIF at: " + gifPath.string();
+                logToFile(error, WARNING);
+                std::cout << error << std::endl;
+            }
+
             while (!WindowShouldClose() && gameRunning) {
                 if (!socket.is_open() || reconnecting) {
                     BeginDrawing();
@@ -1538,8 +1613,7 @@ int client_main() {
                     //check collision with enemies
                     for (const auto& enemy : game[localRoomName]["enemies"]) {
                         if (checkCollision(checklist, enemy)) {
-                            int index = findIndex(game[localRoomName]["enemies"], "x", enemy["x"].get<int>());
-                            checklist["enemyTouched"] = index;
+                            checklist["enemyTouched"] = enemy["id"].get<int>();
                             break;
                         }
                     }
@@ -1664,7 +1738,12 @@ int client_main() {
                         }
                     }
 
-                    // Update and draw all enemies the classic way
+                    bool enemyNearby = false;
+                    float maxEffectDistance = 100.0f;
+                    float minEffectDistance = 55.0f;
+                    float closestDist = maxEffectDistance;
+                    
+                    // Update and draw all enemies
                     for (auto& enemy : game[localRoomName]["enemies"]) {
                         if (enemy["room"] == localPlayer["room"].get<int>()) {
                             Rectangle sourceRect = { 0, 0, static_cast<float>(enemyTexture.width), static_cast<float>(enemyTexture.height) };
@@ -1682,6 +1761,42 @@ int client_main() {
                                 0.0f,
                                 WHITE
                             );
+
+                            float dist = getDistance(
+                                playerStates[localPlayer["socket"].get<int>()].current.x,
+                                playerStates[localPlayer["socket"].get<int>()].current.y,
+                                enemy["x"].get<float>(),
+                                enemy["y"].get<float>()
+                            );
+                            if (dist <= maxEffectDistance) {
+                                enemyNearby = true;
+                                closestDist = std::min(closestDist, dist);
+                            }
+                        }
+                    }
+
+                    // Draw static effect with enhanced gradual transition
+                    if (enemyNearby) {
+                        staticGif.update(GetFrameTime());
+                        
+                        // Calculate alpha with enhanced transition
+                        float normalizedDist = (closestDist - minEffectDistance) / (maxEffectDistance - minEffectDistance);
+                        normalizedDist = std::max(0.0f, std::min(1.0f, normalizedDist));
+                        
+                        // Use improved easing function for more gradual effect
+                        float alpha = 0.7f * (1.0f - normalizedDist * normalizedDist);
+                        
+                        // Additional scaling for distance-based intensity
+                        if (closestDist < maxEffectDistance * 0.3f) {
+                            alpha *= 1.2f; // Intensify effect when very close
+                        }
+                        
+                        // Ensure alpha stays within bounds
+                        alpha = std::max(0.0f, std::min(0.7f, alpha));
+                        
+                        // Draw static with calculated alpha
+                        if (!staticGif.frames.empty()) {
+                            DrawTextureProFullscreen(staticGif.frames[staticGif.currentFrame].texture, alpha);
                         }
                     }
 
@@ -1694,6 +1809,7 @@ int client_main() {
             json quitMessage = {{"quitGame", true}};
             boost::asio::write(socket, boost::asio::buffer(quitMessage.dump() + "\n"));
             socket.close();
+            staticGif.unload();
         } catch (const std::exception& e) {
             logToFile(std::string("ERROR: ") + e.what());
             std::cerr << "Exception: " << e.what() << std::endl;
